@@ -440,6 +440,8 @@ static XWindow xw;
 static Term *terms;
 static Term *focused_term;
 static bool prefix_active = false;
+static bool select_mode = false;
+static bool visual_mode = false;
 static CSIEscape csiescseq;
 static STREscape strescseq;
 static pid_t pid;
@@ -669,6 +671,20 @@ y2row(Term *term, int y) {
 	y /= xw.ch;
 
 	return LIMIT(y, 0, term->row-1);
+}
+
+static int
+col2x(Term *term, int x) {
+	x *= xw.cw;
+	x += borderpx;
+	return x;
+}
+
+static int
+row2x(Term *term, int y) {
+	y *= xw.ch;
+	y += borderpx;
+	return y;
 }
 
 static inline bool
@@ -1254,6 +1270,7 @@ ttyread(Term *term) {
 	int ret;
 
 	/* append read bytes to unprocessed bytes */
+	// TODO: Assume the process is dead on error, remove tab.
 	if((ret = read(term->cmdfd, buf+buflen, LEN(buf)-buflen)) < 0)
 		die("Couldn't read from shell: %s\n", SERRNO);
 
@@ -3411,7 +3428,106 @@ kpress(XEvent *ev) {
 	len = XmbLookupString(xw.xic, e, xstr, sizeof(xstr), &ksym, &status);
 	e->state &= ~Mod2Mask;
 
+#define CREATE_MEVENT \
+	XEvent ev; \
+	ev.xbutton.button = Button1; \
+	ev.xbutton.state |= Button1Mask; \
+	ev.xbutton.x = col2x(term, term->c.x); \
+	ev.xbutton.y = row2x(term, term->c.y);
+
+#define CREATE_BPRESS do { \
+	CREATE_MEVENT; \
+	bpress(&ev); \
+} while (0)
+
+#define CREATE_BMOTION do { \
+	CREATE_MEVENT; \
+	bmotion(&ev); \
+} while (0)
+
+#define CREATE_BRELEASE do { \
+	CREATE_MEVENT; \
+	brelease(&ev); \
+} while (0)
+
+	// http://tronche.com/gui/x/xlib/
+	// http://tronche.com/gui/x/xlib/events/
+	// http://tronche.com/gui/x/xlib/events/keyboard-pointer/keyboard-pointer.html
 	/* 0. prefix - C-a */
+	if (select_mode) {
+		Term *term = focused_term;
+		if (ksym == XK_q) {
+			if (visual_mode) {
+				CREATE_BRELEASE;
+				visual_mode = false;
+			}
+			select_mode = false;
+			// select_mode_leave();
+			tcursor(term, CURSOR_LOAD);
+		} else if (ksym == XK_h) {
+			// select_mode_left();
+			tmoveto(term, term->c.x - 1, term->c.y);
+			if (visual_mode) CREATE_BMOTION;
+		} else if (ksym == XK_j) {
+			// select_mode_down();
+			tmoveto(term, term->c.x, term->c.y + 1);
+			// if (visual_mode) bmotion();
+			if (visual_mode) CREATE_BMOTION;
+		} else if (ksym == XK_k) {
+			// select_mode_up();
+			tmoveto(term, term->c.x, term->c.y - 1);
+			if (visual_mode) CREATE_BMOTION;
+		} else if (ksym == XK_l) {
+			tmoveto(term, term->c.x + 1, term->c.y);
+			// select_mode_right();
+			if (visual_mode) CREATE_BMOTION;
+		} else if (ksym == XK_u && match(ControlMask, e->state)) {
+			// select_mode_half_up();
+			tscrollup(term, term->top, term->row / 2);
+			if (visual_mode) CREATE_BMOTION;
+		} else if (ksym == XK_d && match(ControlMask, e->state)) {
+			// select_mode_half_down();
+			tscrolldown(term, term->top, term->row / 2);
+			if (visual_mode) CREATE_BMOTION;
+		} else if (ksym == XK_b && match(ControlMask, e->state)) {
+			// select_mode_full_up();
+			tscrollup(term, term->top, term->row);
+			if (visual_mode) CREATE_BMOTION;
+		} else if (ksym == XK_f && match(ControlMask, e->state)) {
+			// select_mode_full_down();
+			tscrolldown(term, term->top, term->row);
+			if (visual_mode) CREATE_BMOTION;
+		} else if (ksym == XK_v) {
+			// select_mode_visual_enter();
+			visual_mode = true;
+			// selinit();
+			// bpress();
+			CREATE_BPRESS;
+		} else if (ksym == XK_y) {
+			if (visual_mode) {
+				// select_mode_visual_yank();
+				// select_mode_visual_leave();
+				// select_mode_leave();
+
+				// brelease(&ev);
+				CREATE_BRELEASE;
+
+				// selcopy();
+				// sel.mode = 0;
+				// focused_term->dirty[sel.ey] = 1;
+
+				visual_mode = false;
+				select_mode = false;
+				tcursor(term, CURSOR_LOAD);
+			}
+		}
+		return;
+	}
+#undef CREATE_MEVENT
+#undef CREATE_BPRESS
+#undef CREATE_BMOTION
+#undef CREATE_BRELEASE
+
 	if (ksym == XK_a && match(ControlMask, e->state)) {
 		if (!prefix_active) {
 			prefix_active = true;
@@ -3419,16 +3535,23 @@ kpress(XEvent *ev) {
 		}
 	}
 	if (prefix_active) {
-		if (ksym == XK_c) {
+		Term *term = focused_term;
+		if (ksym == XK_bracketleft) {
+			select_mode = true;
+			// NOTE: Better way of doing this by just saving the x, y.
+			tcursor(term, CURSOR_SAVE);
+			tmoveto(term, 0, term->row - 1);
+			// select_mode_enter();
+		} else if (ksym == XK_c) {
 			tab_add();
 		} else if (ksym == XK_k) {
-			tab_remove(focused_term);
+			tab_remove(term);
 		} else if (ksym >= XK_1 && ksym <= XK_9) {
 			tab_focus_idx(ksym - XK_0);
 		} else if (ksym == XK_p) {
-			tab_focus_prev(focused_term);
+			tab_focus_prev(term);
 		} else if (ksym == XK_n) {
-			tab_focus_next(focused_term);
+			tab_focus_next(term);
 		}
 		prefix_active = false;
 		return;
