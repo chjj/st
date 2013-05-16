@@ -34,7 +34,7 @@ static unsigned int actionfps = 30;
 static unsigned int blinktimeout = 800;
 
 /* TERM value */
-static char termname[] = "st-256color";
+static char termname[] = "xterm-256color";
 
 static unsigned int tabspaces = 8;
 
