@@ -681,7 +681,7 @@ col2x(Term *term, int x) {
 }
 
 static int
-row2x(Term *term, int y) {
+row2y(Term *term, int y) {
 	y *= xw.ch;
 	y += borderpx;
 	return y;
@@ -3433,7 +3433,7 @@ kpress(XEvent *ev) {
 	ev.xbutton.button = Button1; \
 	ev.xbutton.state |= Button1Mask; \
 	ev.xbutton.x = col2x(term, term->c.x); \
-	ev.xbutton.y = row2x(term, term->c.y);
+	ev.xbutton.y = row2y(term, term->c.y);
 
 #define CREATE_BPRESS do { \
 	CREATE_MEVENT; \
@@ -3510,6 +3510,9 @@ kpress(XEvent *ev) {
 				// select_mode_leave();
 
 				// brelease(&ev);
+				CREATE_BRELEASE;
+				CREATE_BPRESS;
+				// Possibly not necessary:
 				CREATE_BRELEASE;
 
 				// selcopy();
