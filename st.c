@@ -73,7 +73,7 @@ char *argv0;
 #define BETWEEN(x, a, b)  ((a) <= (x) && (x) <= (b))
 #define LIMIT(x, a, b)    (x) = (x) < (a) ? (a) : (x) > (b) ? (b) : (x)
 #define ATTRCMP(a, b) ((a).mode != (b).mode || (a).fg != (b).fg || (a).bg != (b).bg)
-#define IS_SET(flag) ((term.mode & (flag)) != 0)
+#define IS_SET(t, flag) (((t)->mode & (flag)) != 0)
 #define TIMEDIFF(t1, t2) ((t1.tv_sec-t2.tv_sec)*1000 + (t1.tv_usec-t2.tv_usec)/1000)
 
 #define VT102ID "\033[?6c"
@@ -312,7 +312,9 @@ static void draw(void);
 static void redraw(int);
 static void drawregion(int, int, int, int);
 static void execsh(void);
+#ifdef NO_TABS
 static void sigchld(int);
+#endif
 static void run(void);
 
 static void csidump(void);
@@ -763,7 +765,7 @@ getbuttoninfo(XEvent *e) {
 	int type;
 	uint state = e->xbutton.state &~Button1Mask;
 
-	sel.alt = IS_SET(MODE_ALTSCREEN);
+	sel.alt = IS_SET(focused_term, MODE_ALTSCREEN);
 
 	sel.ex = x2col(focused_term, e->xbutton.x);
 	sel.ey = y2row(focused_term, e->xbutton.y);
@@ -801,11 +803,11 @@ mousereport(XEvent *e) {
 
 	/* from urxvt */
 	if(e->xbutton.type == MotionNotify) {
-		if(!IS_SET(MODE_MOUSEMOTION) || (x == ox && y == oy))
+		if(!IS_SET(focused_term, MODE_MOUSEMOTION) || (x == ox && y == oy))
 			return;
 		button = ob + 32;
 		ox = x, oy = y;
-	} else if(!IS_SET(MODE_MOUSESGR)
+	} else if(!IS_SET(focused_term, MODE_MOUSESGR)
 			&& (e->xbutton.type == ButtonRelease
 				|| button == AnyButton)) {
 		button = 3;
@@ -824,7 +826,7 @@ mousereport(XEvent *e) {
 		+ (state & ControlMask ? 16 : 0);
 
 	len = 0;
-	if(IS_SET(MODE_MOUSESGR)) {
+	if(IS_SET(focused_term, MODE_MOUSESGR)) {
 		len = snprintf(buf, sizeof(buf), "\033[<%d;%d;%d%c",
 				button, x+1, y+1,
 				e->xbutton.type == ButtonRelease ? 'm' : 'M');
@@ -843,7 +845,7 @@ bpress(XEvent *e) {
 	struct timeval now;
 	Mousekey *mk;
 
-	if(IS_SET(MODE_MOUSE)) {
+	if(IS_SET(focused_term, MODE_MOUSE)) {
 		mousereport(e);
 		return;
 	}
@@ -852,7 +854,7 @@ bpress(XEvent *e) {
 		if(e->xbutton.button == mk->b
 				&& match(mk->mask, e->xbutton.state)) {
 			ttywrite(focused_term, mk->s, strlen(mk->s));
-			if(IS_SET(MODE_ECHO))
+			if(IS_SET(focused_term, MODE_ECHO))
 				techo(focused_term, mk->s, strlen(mk->s));
 			return;
 		}
@@ -1076,7 +1078,7 @@ xsetsel(char *str) {
 
 void
 brelease(XEvent *e) {
-	if(IS_SET(MODE_MOUSE)) {
+	if(IS_SET(focused_term, MODE_MOUSE)) {
 		mousereport(e);
 		return;
 	}
@@ -1099,7 +1101,7 @@ void
 bmotion(XEvent *e) {
 	int oldey, oldex, oldsby, oldsey;
 
-	if(IS_SET(MODE_MOUSE)) {
+	if(IS_SET(focused_term, MODE_MOUSE)) {
 		mousereport(e);
 		return;
 	}
@@ -1164,6 +1166,7 @@ execsh(void) {
 	exit(EXIT_FAILURE);
 }
 
+#ifdef NO_TABS
 void
 sigchld(int a) {
 	int stat = 0;
@@ -1177,6 +1180,7 @@ sigchld(int a) {
 		exit(EXIT_FAILURE);
 	}
 }
+#endif
 
 void
 ttynew(Term *term) {
@@ -1360,7 +1364,7 @@ void
 tnew(Term *term, int col, int row) {
 	memset(term, 0, sizeof(Term));
 	tresize(term, col, row);
-	term.numlock = 1;
+	term->numlock = 1;
 
 	treset(term);
 }
@@ -1793,7 +1797,7 @@ tsetmode(Term *term, bool priv, bool set, int *args, int narg) {
 				if (!allowaltscreen)
 					break;
 
-				alt = IS_SET(MODE_ALTSCREEN);
+				alt = IS_SET(term, MODE_ALTSCREEN);
 				if(alt) {
 					tclearregion(term, 0, 0, term->col-1,
 							term->row-1);
@@ -2241,7 +2245,7 @@ tputc(Term *term, char *c, int len) {
 		case '\v':	/* VT */
 		case '\n':	/* LF */
 			/* go to first col if the mode is set */
-			tnewline(term, IS_SET(MODE_CRLF));
+			tnewline(term, IS_SET(term, MODE_CRLF));
 			return;
 		case '\a':	/* BEL */
 			if(!(xw.state & WIN_FOCUSED))
@@ -2410,12 +2414,12 @@ tputc(Term *term, char *c, int len) {
 		return;
 	if(sel.bx != -1 && BETWEEN(term->c.y, sel.by, sel.ey))
 		sel.bx = -1;
-	if(IS_SET(MODE_WRAP) && (term->c.state & CURSOR_WRAPNEXT)) {
+	if(IS_SET(term, MODE_WRAP) && (term->c.state & CURSOR_WRAPNEXT)) {
 		term->line[term->c.y][term->c.x].mode |= ATTR_WRAP;
 		tnewline(term, 1);
 	}
 
-	if(IS_SET(MODE_INSERT) && term->c.x+1 < term->col) {
+	if(IS_SET(term, MODE_INSERT) && term->c.x+1 < term->col) {
 		memmove(&term->line[term->c.y][term->c.x+1],
 			&term->line[term->c.y][term->c.x],
 			(term->col - term->c.x - 1) * sizeof(Glyph));
@@ -2601,7 +2605,7 @@ xsetcolorname(int x, const char *name) {
 void
 xtermclear(int col1, int row1, int col2, int row2) {
 	XftDrawRect(xw.draw,
-			&dc.col[IS_SET(MODE_REVERSE) ? defaultfg : defaultbg],
+			&dc.col[IS_SET(focused_term, MODE_REVERSE) ? defaultfg : defaultbg],
 			borderpx + col1 * xw.cw,
 			borderpx + row1 * xw.ch,
 			(col2-col1+1) * xw.cw,
@@ -2614,7 +2618,7 @@ xtermclear(int col1, int row1, int col2, int row2) {
 void
 xclear(int x1, int y1, int x2, int y2) {
 	XftDrawRect(xw.draw,
-			&dc.col[IS_SET(MODE_REVERSE)? defaultfg : defaultbg],
+			&dc.col[IS_SET(focused_term, MODE_REVERSE)? defaultfg : defaultbg],
 			x1, y1, x2-x1, y2-y1);
 }
 
@@ -2944,7 +2948,7 @@ xdraws(char *s, Glyph base, int x, int y, int charlen, int bytelen) {
 		frcflags = FRC_BOLD;
 	}
 
-	if(IS_SET(MODE_REVERSE)) {
+	if(IS_SET(focused_term, MODE_REVERSE)) {
 		if(fg == &dc.col[defaultfg]) {
 			fg = &dc.col[defaultbg];
 		} else {
@@ -3144,9 +3148,9 @@ xdrawcursor(void) {
 			oldy, 1, sl);
 
 	/* draw the new one */
-	if(!(IS_SET(MODE_HIDE))) {
+	if(!(IS_SET(focused_term, MODE_HIDE))) {
 		if(xw.state & WIN_FOCUSED) {
-			if(IS_SET(MODE_REVERSE)) {
+			if(IS_SET(focused_term, MODE_REVERSE)) {
 				g.mode |= ATTR_REVERSE;
 				g.fg = defaultcs;
 				g.bg = defaultfg;
@@ -3210,7 +3214,7 @@ draw(void) {
 	XCopyArea(xw.dpy, xw.buf, xw.win, dc.gc, 0, 0, xw.w,
 			xw.h, 0, 0);
 	XSetForeground(xw.dpy, dc.gc,
-			dc.col[IS_SET(MODE_REVERSE)?
+			dc.col[IS_SET(focused_term, MODE_REVERSE)?
 				defaultfg : defaultbg].pixel);
 }
 
@@ -3221,7 +3225,7 @@ drawregion(int x1, int y1, int x2, int y2) {
 	char buf[DRAW_BUF_SIZ];
 	bool ena_sel = sel.bx != -1;
 
-	if(sel.alt ^ IS_SET(MODE_ALTSCREEN))
+	if(sel.alt ^ IS_SET(focused_term, MODE_ALTSCREEN))
 		ena_sel = 0;
 
 	if(!(xw.state & WIN_VISIBLE))
@@ -3358,22 +3362,22 @@ kmap(KeySym k, uint state) {
 			continue;
 
 		if(kp->appkey > 0) {
-			if(!IS_SET(MODE_APPKEYPAD))
+			if(!IS_SET(focused_term, MODE_APPKEYPAD))
 				continue;
 			if(focused_term->numlock && kp->appkey == 2)
 				continue;
-		} else if(kp->appkey < 0 && IS_SET(MODE_APPKEYPAD)) {
+		} else if(kp->appkey < 0 && IS_SET(focused_term, MODE_APPKEYPAD)) {
 			continue;
 		}
 
-		if((kp->appcursor < 0 && IS_SET(MODE_APPCURSOR)) ||
+		if((kp->appcursor < 0 && IS_SET(focused_term, MODE_APPCURSOR)) ||
 				(kp->appcursor > 0
-				 && !IS_SET(MODE_APPCURSOR))) {
+				 && !IS_SET(focused_term, MODE_APPCURSOR))) {
 			continue;
 		}
 
-		if((kp->crlf < 0 && IS_SET(MODE_CRLF)) ||
-				(kp->crlf > 0 && !IS_SET(MODE_CRLF))) {
+		if((kp->crlf < 0 && IS_SET(focused_term, MODE_CRLF)) ||
+				(kp->crlf > 0 && !IS_SET(focused_term, MODE_CRLF))) {
 			continue;
 		}
 
@@ -3393,7 +3397,7 @@ kpress(XEvent *ev) {
 	Status status;
 	Shortcut *bp;
 
-	if(IS_SET(MODE_KBDLOCK))
+	if(IS_SET(focused_term, MODE_KBDLOCK))
 		return;
 
 	len = XmbLookupString(xw.xic, e, xstr, sizeof(xstr), &ksym, &status);
@@ -3416,7 +3420,7 @@ kpress(XEvent *ev) {
 			return;
 
 		if(len == 1 && e->state & Mod1Mask) {
-			if(IS_SET(MODE_8BIT)) {
+			if(IS_SET(focused_term, MODE_8BIT)) {
 				if(*xstr < 0177) {
 					c = *xstr | B7;
 					ret = utf8encode(&c, cp);
@@ -3433,7 +3437,7 @@ kpress(XEvent *ev) {
 	}
 
 	ttywrite(focused_term, buf, len);
-	if(IS_SET(MODE_ECHO))
+	if(IS_SET(focused_term, MODE_ECHO))
 		techo(focused_term, buf, len);
 }
 
@@ -3509,9 +3513,9 @@ run(void) {
 		}
 		FD_SET(xfd, &rfd);
 
-		int lastfd;
+		int lastfd = 0;
 		for (term = terms; term; term = term->next) {
-			lastfd = MAX(term->fd, lastfd);
+			lastfd = MAX(term->cmdfd, lastfd);
 		}
 		if(select(MAX(xfd, lastfd)+1, &rfd, NULL, NULL, tv) < 0) {
 			if(errno == EINTR)
@@ -3519,12 +3523,12 @@ run(void) {
 			die("select failed: %s\n", SERRNO);
 		}
 		for (term = terms; term; term = term->next) {
-			if(FD_ISSET(term->cmdfd[i], &rfd)) {
+			if(FD_ISSET(term->cmdfd, &rfd)) {
 				ttyread(term);
 				if(blinktimeout) {
 					blinkset = tattrset(term, ATTR_BLINK);
-					if(!blinkset && term.mode & ATTR_BLINK)
-						term.mode &= ~(MODE_BLINK);
+					if(!blinkset && term->mode & ATTR_BLINK)
+						term->mode &= ~(MODE_BLINK);
 				}
 			}
 		}
@@ -3541,7 +3545,7 @@ run(void) {
 		if(blinktimeout && TIMEDIFF(now, lastblink) > blinktimeout) {
 			for (term = terms; term; term = term->next) {
 				tsetdirtattr(term, ATTR_BLINK);
-				term.mode ^= MODE_BLINK;
+				term->mode ^= MODE_BLINK;
 			}
 			gettimeofday(&lastblink, NULL);
 			dodraw = 1;
@@ -3650,7 +3654,7 @@ main(int argc, char *argv[]) {
 run:
 	setlocale(LC_CTYPE, "");
 	XSetLocaleModifiers("");
-	*terms = (Term *)xmalloc(sizeof(Term));
+	terms = (Term *)xmalloc(sizeof(Term));
 	focused_term = terms;
 	tnew(focused_term, 80, 24);
 	xinit();
