@@ -359,6 +359,13 @@ static void ttyread(Term *);
 static void ttyresize(Term *);
 static void ttywrite(Term *, const char *, size_t);
 
+static void tab_add(void);
+static void tab_remove(Term *);
+static void tab_focus(Term *);
+static void tab_focus_prev(Term *);
+static void tab_focus_next(Term *);
+static Term *tab_focus_idx(int);
+
 static void xdraws(char *, Glyph, int, int, int, int);
 static void xhints(void);
 static void xclear(int, int, int, int);
@@ -432,6 +439,7 @@ static DC dc;
 static XWindow xw;
 static Term *terms;
 static Term *focused_term;
+static bool prefix_active = false;
 static CSIEscape csiescseq;
 static STREscape strescseq;
 static pid_t pid;
@@ -3402,6 +3410,30 @@ kpress(XEvent *ev) {
 
 	len = XmbLookupString(xw.xic, e, xstr, sizeof(xstr), &ksym, &status);
 	e->state &= ~Mod2Mask;
+
+	/* 0. prefix - C-a */
+	if (ksym == XK_a && match(ControlMask, e->state)) {
+		if (!prefix_active) {
+			prefix_active = true;
+			return;
+		}
+	}
+	if (prefix_active) {
+		if (ksym == XK_c) {
+			tab_add();
+		} else if (ksym == XK_k) {
+			tab_remove(focused_term);
+		} else if (ksym >= XK_1 && ksym <= XK_9) {
+			tab_focus_idx(ksym - XK_0);
+		} else if (ksym == XK_p) {
+			tab_focus_prev(focused_term);
+		} else if (ksym == XK_n) {
+			tab_focus_next(focused_term);
+		}
+		prefix_active = false;
+		return;
+	}
+
 	/* 1. shortcuts */
 	for(bp = shortcuts; bp < shortcuts + LEN(shortcuts); bp++) {
 		if(ksym == bp->keysym && match(bp->mod, e->state)) {
@@ -3493,6 +3525,85 @@ resize(XEvent *e) {
 		return;
 
 	cresize(e->xconfigure.width, e->xconfigure.height);
+}
+
+void
+tab_add(void) {
+	Term *term;
+
+	for (term = terms; term; term = term->next) {
+		if (!term->next) break;
+	}
+
+	if (!term) {
+		terms = (Term *)xmalloc(sizeof(Term));
+		focused_term = terms;
+		tnew(focused_term, 80, 24);
+	} else {
+		term->next = (Term *)xmalloc(sizeof(Term));
+		focused_term = term->next;
+		tnew(focused_term, terms->col, terms->row);
+	}
+
+	ttynew(focused_term);
+
+	redraw(0);
+}
+
+void
+tab_remove(Term *target) {
+	Term *term;
+	for (term = terms; term; term = term->next) {
+		if (term->next == target) break;
+	}
+	if (!term) {
+		if (target == terms) {
+			exit(EXIT_SUCCESS);
+		}
+		return;
+	}
+	if (target == terms) {
+		terms = term;
+	}
+	term->next = target->next;
+	focused_term = term;
+	free(target);
+	redraw(0);
+}
+
+void
+tab_focus(Term *target) {
+	focused_term = target == NULL ? terms : target;
+	redraw(0);
+}
+
+void
+tab_focus_prev(Term *target) {
+	Term *term;
+	for (term = terms; term; term = term->next) {
+		if (term->next == target) {
+			break;
+		}
+	}
+	tab_focus(term);
+}
+
+void
+tab_focus_next(Term *target) {
+	tab_focus(target ? target->next : NULL);
+}
+
+Term *
+tab_focus_idx(int tab) {
+	int i = 0;
+	Term *term;
+	for (term = terms; term; term = term->next) {
+		if (++i == tab) {
+			tab_focus(term);
+			break;
+		}
+	}
+	return term;
 }
 
 void
@@ -3654,6 +3765,7 @@ main(int argc, char *argv[]) {
 run:
 	setlocale(LC_CTYPE, "");
 	XSetLocaleModifiers("");
+	// tab_add();
 	terms = (Term *)xmalloc(sizeof(Term));
 	focused_term = terms;
 	tnew(focused_term, 80, 24);
