@@ -3488,20 +3488,29 @@ run(void) {
 
 	for(xev = actionfps;;) {
 		FD_ZERO(&rfd);
-		FD_SET(cmdfd, &rfd);
+		t_term *t;
+		for (t = terms; t; t = t->next) {
+			FD_SET(t->cmdfd, &rfd);
+		}
 		FD_SET(xfd, &rfd);
 
-		if(select(MAX(xfd, cmdfd)+1, &rfd, NULL, NULL, tv) < 0) {
+		int lastfd;
+		for (t = terms; t; t = t->next) {
+			lastfd = MAX(t->fd, lastfd);
+		}
+		if(select(MAX(xfd, lastfd)+1, &rfd, NULL, NULL, tv) < 0) {
 			if(errno == EINTR)
 				continue;
 			die("select failed: %s\n", SERRNO);
 		}
-		if(FD_ISSET(cmdfd, &rfd)) {
-			ttyread();
-			if(blinktimeout) {
-				blinkset = tattrset(ATTR_BLINK);
-				if(!blinkset && term.mode & ATTR_BLINK)
-					term.mode &= ~(MODE_BLINK);
+		for (t = terms; t; t = t->next) {
+			if(FD_ISSET(t->cmdfd[i], &rfd)) {
+				ttyread(t);
+				if(blinktimeout) {
+					blinkset = tattrset(ATTR_BLINK);
+					if(!blinkset && t.mode & ATTR_BLINK)
+						t.mode &= ~(MODE_BLINK);
+				}
 			}
 		}
 
@@ -3516,7 +3525,9 @@ run(void) {
 		dodraw = 0;
 		if(blinktimeout && TIMEDIFF(now, lastblink) > blinktimeout) {
 			tsetdirtattr(ATTR_BLINK);
-			term.mode ^= MODE_BLINK;
+			for (t = terms; t; t = t->next) {
+				t.mode ^= MODE_BLINK;
+			}
 			gettimeofday(&lastblink, NULL);
 			dodraw = 1;
 		}
@@ -3535,7 +3546,7 @@ run(void) {
 					(handler[ev.type])(&ev);
 			}
 
-			draw();
+			draw(focused_term);
 			XFlush(xw.dpy);
 
 			if(xev && !FD_ISSET(xfd, &rfd))
