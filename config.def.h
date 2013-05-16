@@ -5,7 +5,12 @@
  *
  * font: see http://freedesktop.org/software/fontconfig/fontconfig-user.html
  */
+#if 0
 static char font[] = "Liberation Mono:pixelsize=12:antialias=false:autohint=false";
+#endif
+// static char font[] = "Deja Vu Sans Mono:pixelsize=11:antialias=true";
+static char font[] = "-*-terminus-medium-*-*-*-12-*-*-*-*-*-*-*";
+
 static int borderpx = 2;
 static char shell[] = "/bin/sh";
 
@@ -34,11 +39,14 @@ static unsigned int actionfps = 30;
 static unsigned int blinktimeout = 800;
 
 /* TERM value */
+#if 0
+static char termname[] = "st-256color";
+#endif
 static char termname[] = "xterm-256color";
 
 static unsigned int tabspaces = 8;
 
-
+#if 0
 /* Terminal colors (16 first used in escape sequence) */
 static const char *colorname[] = {
 	/* 8 normal colors */
@@ -66,14 +74,67 @@ static const char *colorname[] = {
 	/* more colors can be added after 255 to use with DefaultXX */
 	"#cccccc",
 };
+#endif
 
+/* Terminal colors (16 first used in escape sequence) */
+static const char *colorname[] = {
+	/* 8 normal colors */
+	// black
+	"#2e3436",
+	// red
+	"#cc0000",
+	// green
+	"#4e9a06",
+	// yellow
+	"#c4a000",
+	// blue
+	"#3465a4",
+	// magenta
+	"#75507b",
+	// cyan
+	"#06989a",
+	// white
+	"#d3d7cf",
+
+	/* 8 bright colors */
+	// black
+	"#555753",
+	// red
+	"#ef2929",
+	// green
+	"#8ae234",
+	// yellow
+	"#fce94f",
+	// blue
+	"#729fcf",
+	// magenta
+	"#ad7fa8",
+	// cyan
+	"#34e2e2",
+	// white
+	"#eeeeec",
+
+	[255] = 0,
+
+	/* more colors can be added after 255 to use with DefaultXX */
+	// fg / cursor
+	"#eeeeee",
+	// bg
+	"#111111",
+};
 
 /*
  * Default colors (colorname index)
  * foreground, background, cursor
  */
+#if 0
 static unsigned int defaultfg = 7;
 static unsigned int defaultbg = 0;
+static unsigned int defaultcs = 256;
+#endif
+
+static unsigned int defaultfg = 256;
+static unsigned int defaultbg = 257;
 static unsigned int defaultcs = 256;
 
 /*

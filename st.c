@@ -442,6 +442,8 @@ static Term *focused_term;
 static bool prefix_active = false;
 static bool select_mode = false;
 static bool visual_mode = false;
+//static bool cursor_was_hidden = false;
+static struct { int x; int y; bool hidden; } normal_cursor;
 static CSIEscape csiescseq;
 static STREscape strescseq;
 static pid_t pid;
@@ -1270,9 +1272,19 @@ ttyread(Term *term) {
 	int ret;
 
 	/* append read bytes to unprocessed bytes */
-	// TODO: Assume the process is dead on error, remove tab.
-	if((ret = read(term->cmdfd, buf+buflen, LEN(buf)-buflen)) < 0)
+	if((ret = read(term->cmdfd, buf+buflen, LEN(buf)-buflen)) < 0) {
+#ifdef NO_TABS
 		die("Couldn't read from shell: %s\n", SERRNO);
+#else
+		tab_remove(term);
+		return;
+#endif
+	}
+
+	/* ignore screen output while selecting */
+	if (select_mode) return;
+	// TODO: Potentially buffer data here:
+	// if (...) xrealloc(select_buf, (select_buf_size *= 2));
 
 	/* process every complete utf8 char */
 	buflen += ret;
@@ -3456,10 +3468,16 @@ kpress(XEvent *ev) {
 		if (ksym == XK_q) {
 			if (visual_mode) {
 				CREATE_BRELEASE;
+				CREATE_BPRESS;
+				// Not necessary (?):
+				CREATE_BRELEASE;
 				visual_mode = false;
 			}
 			select_mode = false;
-			tcursor(term, CURSOR_LOAD);
+			//tcursor(term, CURSOR_LOAD);
+			//if (cursor_was_hidden) term->mode |= MODE_HIDE;
+			tmoveto(term, normal_cursor.x, normal_cursor.y);
+			if (normal_cursor.hidden) term->mode |= MODE_HIDE;
 		} else if (ksym == XK_h) {
 			tmoveto(term, term->c.x - 1, term->c.y);
 			if (visual_mode) CREATE_BMOTION;
@@ -3472,10 +3490,33 @@ kpress(XEvent *ev) {
 		} else if (ksym == XK_l) {
 			tmoveto(term, term->c.x + 1, term->c.y);
 			if (visual_mode) CREATE_BMOTION;
+		} else if (ksym == XK_0 || ksym == XK_asciicircum) {
+			tmoveto(term, 0, term->c.y);
+			if (visual_mode) CREATE_BMOTION;
+		} else if (ksym == XK_w || ksym == XK_W) {
+			tmoveto(term, term->c.x + 5, term->c.y);
+			if (visual_mode) CREATE_BMOTION;
+		} else if (ksym == XK_e || ksym == XK_E) {
+			tmoveto(term, term->c.x + 5, term->c.y);
+			if (visual_mode) CREATE_BMOTION;
+		} else if (ksym == XK_b || ksym == XK_B) {
+			tmoveto(term, term->c.x - 5, term->c.y);
+			if (visual_mode) CREATE_BMOTION;
+		} else if (ksym == XK_dollar) {
+			tmoveto(term, term->col - 1, term->c.y);
+			if (visual_mode) CREATE_BMOTION;
+		} else if (ksym == XK_braceleft) {
+			tscrollup(term, term->top, 15);
+			if (visual_mode) CREATE_BMOTION;
+		} else if (ksym == XK_braceright) {
+			tscrolldown(term, term->top, 15);
+			if (visual_mode) CREATE_BMOTION;
 		} else if (ksym == XK_u && match(ControlMask, e->state)) {
+			// ttywrite(term, "\031", 1);
 			tscrollup(term, term->top, term->row / 2);
 			if (visual_mode) CREATE_BMOTION;
 		} else if (ksym == XK_d && match(ControlMask, e->state)) {
+			// ttywrite(term, "\005", 1);
 			tscrolldown(term, term->top, term->row / 2);
 			if (visual_mode) CREATE_BMOTION;
 		} else if (ksym == XK_b && match(ControlMask, e->state)) {
@@ -3495,7 +3536,10 @@ kpress(XEvent *ev) {
 				CREATE_BRELEASE;
 				visual_mode = false;
 				select_mode = false;
-				tcursor(term, CURSOR_LOAD);
+				//tcursor(term, CURSOR_LOAD);
+				//if (cursor_was_hidden) term->mode |= MODE_HIDE;
+				tmoveto(term, normal_cursor.x, normal_cursor.y);
+				if (normal_cursor.hidden) term->mode |= MODE_HIDE;
 			}
 		}
 		return;
@@ -3515,16 +3559,25 @@ kpress(XEvent *ev) {
 		Term *term = focused_term;
 		if (ksym == XK_bracketleft) {
 			select_mode = true;
-			// NOTE: Better way of doing this by just saving the x, y.
-			tcursor(term, CURSOR_SAVE);
+
+			//tcursor(term, CURSOR_SAVE);
+			//cursor_was_hidden = term->mode & MODE_HIDE;
+			//term->mode &= ~MODE_HIDE;
+			normal_cursor.x = term->c.x;
+			normal_cursor.y = term->c.y;
+			normal_cursor.hidden = term->mode & MODE_HIDE;
+			term->mode &= ~MODE_HIDE;
+
 			tmoveto(term, 0, term->row - 1);
+		} else if (ksym == XK_p) {
+			selpaste(NULL);
 		} else if (ksym == XK_c) {
 			tab_add();
 		} else if (ksym == XK_k) {
 			tab_remove(term);
 		} else if (ksym >= XK_1 && ksym <= XK_9) {
 			tab_focus_idx(ksym - XK_0);
-		} else if (ksym == XK_p) {
+		} else if (ksym == XK_N) {
 			tab_focus_prev(term);
 		} else if (ksym == XK_n) {
 			tab_focus_next(term);
@@ -3630,15 +3683,15 @@ void
 tab_add(void) {
 	Term *term;
 
-	for (term = terms; term; term = term->next) {
-		if (!term->next) break;
-	}
-
-	if (!term) {
+	if (!terms) {
 		terms = (Term *)xmalloc(sizeof(Term));
 		focused_term = terms;
 		tnew(focused_term, 80, 24);
 	} else {
+		for (term = terms; term; term = term->next) {
+			if (!term->next) break;
+		}
+		if (!term) die("no terminal found\n");
 		term->next = (Term *)xmalloc(sizeof(Term));
 		focused_term = term->next;
 		tnew(focused_term, terms->col, terms->row);
@@ -3651,21 +3704,19 @@ tab_add(void) {
 
 void
 tab_remove(Term *target) {
-	Term *term;
-	for (term = terms; term; term = term->next) {
-		if (term->next == target) break;
-	}
-	if (!term) {
-		if (target == terms) {
-			exit(EXIT_SUCCESS);
+	if (terms == target) {
+		terms = terms->next;
+		if (!terms) exit(EXIT_SUCCESS);
+		focused_term = terms;
+	} else {
+		Term *term;
+		for (term = terms; term; term = term->next) {
+			if (term->next == target) break;
 		}
-		return;
+		if (!term) die("no terminal found\n");
+		term->next = target->next;
+		focused_term = term;
 	}
-	if (target == terms) {
-		terms = term;
-	}
-	term->next = target->next;
-	focused_term = term;
 	free(target);
 	redraw(0);
 }
