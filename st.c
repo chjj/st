@@ -3450,9 +3450,6 @@ kpress(XEvent *ev) {
 	brelease(&ev); \
 } while (0)
 
-	// http://tronche.com/gui/x/xlib/
-	// http://tronche.com/gui/x/xlib/events/
-	// http://tronche.com/gui/x/xlib/events/keyboard-pointer/keyboard-pointer.html
 	/* 0. prefix - C-a */
 	if (select_mode) {
 		Term *term = focused_term;
@@ -3462,63 +3459,40 @@ kpress(XEvent *ev) {
 				visual_mode = false;
 			}
 			select_mode = false;
-			// select_mode_leave();
 			tcursor(term, CURSOR_LOAD);
 		} else if (ksym == XK_h) {
-			// select_mode_left();
 			tmoveto(term, term->c.x - 1, term->c.y);
 			if (visual_mode) CREATE_BMOTION;
 		} else if (ksym == XK_j) {
-			// select_mode_down();
 			tmoveto(term, term->c.x, term->c.y + 1);
-			// if (visual_mode) bmotion();
 			if (visual_mode) CREATE_BMOTION;
 		} else if (ksym == XK_k) {
-			// select_mode_up();
 			tmoveto(term, term->c.x, term->c.y - 1);
 			if (visual_mode) CREATE_BMOTION;
 		} else if (ksym == XK_l) {
 			tmoveto(term, term->c.x + 1, term->c.y);
-			// select_mode_right();
 			if (visual_mode) CREATE_BMOTION;
 		} else if (ksym == XK_u && match(ControlMask, e->state)) {
-			// select_mode_half_up();
 			tscrollup(term, term->top, term->row / 2);
 			if (visual_mode) CREATE_BMOTION;
 		} else if (ksym == XK_d && match(ControlMask, e->state)) {
-			// select_mode_half_down();
 			tscrolldown(term, term->top, term->row / 2);
 			if (visual_mode) CREATE_BMOTION;
 		} else if (ksym == XK_b && match(ControlMask, e->state)) {
-			// select_mode_full_up();
 			tscrollup(term, term->top, term->row);
 			if (visual_mode) CREATE_BMOTION;
 		} else if (ksym == XK_f && match(ControlMask, e->state)) {
-			// select_mode_full_down();
 			tscrolldown(term, term->top, term->row);
 			if (visual_mode) CREATE_BMOTION;
 		} else if (ksym == XK_v) {
-			// select_mode_visual_enter();
 			visual_mode = true;
-			// selinit();
-			// bpress();
 			CREATE_BPRESS;
 		} else if (ksym == XK_y) {
 			if (visual_mode) {
-				// select_mode_visual_yank();
-				// select_mode_visual_leave();
-				// select_mode_leave();
-
-				// brelease(&ev);
 				CREATE_BRELEASE;
 				CREATE_BPRESS;
-				// Possibly not necessary:
+				// Not necessary (?):
 				CREATE_BRELEASE;
-
-				// selcopy();
-				// sel.mode = 0;
-				// focused_term->dirty[sel.ey] = 1;
-
 				visual_mode = false;
 				select_mode = false;
 				tcursor(term, CURSOR_LOAD);
@@ -3544,7 +3518,6 @@ kpress(XEvent *ev) {
 			// NOTE: Better way of doing this by just saving the x, y.
 			tcursor(term, CURSOR_SAVE);
 			tmoveto(term, 0, term->row - 1);
-			// select_mode_enter();
 		} else if (ksym == XK_c) {
 			tab_add();
 		} else if (ksym == XK_k) {
