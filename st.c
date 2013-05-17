@@ -359,12 +359,12 @@ static void ttyread(Term *);
 static void ttyresize(Term *);
 static void ttywrite(Term *, const char *, size_t);
 
-static void tab_add(void);
-static void tab_remove(Term *);
-static void tab_focus(Term *);
-static void tab_focus_prev(Term *);
-static void tab_focus_next(Term *);
-static Term *tab_focus_idx(int);
+static void term_add(void);
+static void term_remove(Term *);
+static void term_focus(Term *);
+static void term_focus_prev(Term *);
+static void term_focus_next(Term *);
+static Term *term_focus_idx(int);
 
 static void xdraws(char *, Glyph, int, int, int, int);
 static void xhints(void);
@@ -1277,7 +1277,7 @@ ttyread(Term *term) {
 #ifdef NO_TABS
 		die("Couldn't read from shell: %s\n", SERRNO);
 #else
-		tab_remove(term);
+		term_remove(term);
 		return;
 #endif
 	}
@@ -3617,15 +3617,15 @@ kpress(XEvent *ev) {
 		} else if (ksym == XK_p) {
 			selpaste(NULL);
 		} else if (ksym == XK_c) {
-			tab_add();
+			term_add();
 		} else if (ksym == XK_k) {
-			tab_remove(term);
+			term_remove(term);
 		} else if (ksym >= XK_1 && ksym <= XK_9) {
-			tab_focus_idx(ksym - XK_0);
+			term_focus_idx(ksym - XK_0);
 		} else if (ksym == XK_N) {
-			tab_focus_prev(term);
+			term_focus_prev(term);
 		} else if (ksym == XK_n) {
-			tab_focus_next(term);
+			term_focus_next(term);
 		}
 		prefix_active = false;
 		return;
@@ -3730,7 +3730,7 @@ resize(XEvent *e) {
 }
 
 void
-tab_add(void) {
+term_add(void) {
 	Term *term;
 
 	//bar_needs_refresh = true;
@@ -3762,7 +3762,7 @@ tab_add(void) {
 }
 
 void
-tab_remove(Term *target) {
+term_remove(Term *target) {
 	//bar_needs_refresh = true;
 	if (terms == target) {
 		terms = terms->next;
@@ -3791,35 +3791,35 @@ tab_remove(Term *target) {
 }
 
 void
-tab_focus(Term *target) {
+term_focus(Term *target) {
 	//bar_needs_refresh = true;
 	focused_term = target == NULL ? terms : target;
 	redraw(0);
 }
 
 void
-tab_focus_prev(Term *target) {
+term_focus_prev(Term *target) {
 	Term *term;
 	for (term = terms; term; term = term->next) {
 		if (term->next == target) {
 			break;
 		}
 	}
-	tab_focus(term);
+	term_focus(term);
 }
 
 void
-tab_focus_next(Term *target) {
-	tab_focus(target ? target->next : NULL);
+term_focus_next(Term *target) {
+	term_focus(target ? target->next : NULL);
 }
 
 Term *
-tab_focus_idx(int tab) {
+term_focus_idx(int tab) {
 	int i = 0;
 	Term *term;
 	for (term = terms; term; term = term->next) {
 		if (++i == tab) {
-			tab_focus(term);
+			term_focus(term);
 			break;
 		}
 	}
@@ -3985,7 +3985,7 @@ main(int argc, char *argv[]) {
 run:
 	setlocale(LC_CTYPE, "");
 	XSetLocaleModifiers("");
-	// tab_add();
+	// term_add();
 	terms = (Term *)xmalloc(sizeof(Term));
 	memset(terms, 0, sizeof(Term));
 	focused_term = terms;
