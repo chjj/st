@@ -76,6 +76,8 @@ char *argv0;
 #define IS_SET(t, flag) (((t)->mode & (flag)) != 0)
 #define TIMEDIFF(t1, t2) ((t1.tv_sec-t2.tv_sec)*1000 + (t1.tv_usec-t2.tv_usec)/1000)
 
+#define SCROLLBACK 10000
+
 #define VT102ID "\033[?6c"
 
 enum glyph_attribute {
@@ -191,6 +193,19 @@ typedef struct {
 	int narg;	      /* nb of args */
 } STREscape;
 
+typedef struct _Scrollback {
+	Glyph *line;
+	struct _Scrollback *next;
+	struct _Scrollback *prev;
+	int col;
+} Scrollback;
+
+typedef struct {
+	Scrollback *head;
+	Scrollback *tail;
+	int total;
+} ScrollbackList;
+
 /* Internal representation of the screen */
 typedef struct _Term {
 	int row;	/* nb row */
@@ -208,6 +223,9 @@ typedef struct _Term {
 	struct _Term *next;
 	int cmdfd;
 	pid_t pid;
+	int ybase;
+	Line *scrollback;
+	ScrollbackList *sb;
 } Term;
 
 /* Purely graphic info */
@@ -408,6 +426,10 @@ static void selcopy(void);
 static void selscroll(Term *, int, int);
 static void selsnap(int, int *, int *, int);
 
+ScrollbackList *scrollback_create(void);
+Glyph *scrollback_get(Term *, int);
+void scrollback_add(Term *, Glyph *);
+
 static int utf8decode(char *, long *);
 static int utf8encode(long *, char *);
 static int utf8size(char *);
@@ -444,7 +466,7 @@ static bool prefix_active = false;
 static bool select_mode = false;
 static bool visual_mode = false;
 //static bool cursor_was_hidden = false;
-static struct { int x; int y; bool hidden; } normal_cursor;
+static struct { int x; int y; bool hidden; int ybase; } normal_cursor;
 static CSIEscape csiescseq;
 static STREscape strescseq;
 static pid_t pid;
@@ -1417,6 +1439,45 @@ tswapscreen(Term *term) {
 	tfulldirt(term);
 }
 
+static char *bar_message = NULL;
+
+#define SET_MSG(format, ...) do { \
+	char *s = (char *)malloc(100 * sizeof(char)); \
+	memset(s, 0, 100 * sizeof(char)); \
+	snprintf(s, 100, (format), ##__VA_ARGS__); \
+	bar_message = s; \
+} while(0)
+
+int
+set_message(char *fmt, ...) {
+	int ret;
+
+	char *text = (char *)malloc(100 * sizeof(char));
+	memset(text, 0, 100 * sizeof(char));
+
+	va_list list;
+	va_start(list, fmt);
+	ret = snprintf(text, 100 * sizeof(char), fmt, list);
+	va_end(list);
+
+	bar_message = text;
+
+	return ret;
+}
+
+void
+tscrollback(Term *term, int n) {
+	term->ybase += n;
+	if (term->ybase > 0) term->ybase = 0;
+	else if (term->ybase < -SCROLLBACK) term->ybase = -SCROLLBACK;
+
+	printf("ybase: %d\n", term->ybase);
+
+	redraw(0);
+}
+
+// reverse index
+// tscrolldown(term, term->top, 1);
 void
 tscrolldown(Term *term, int orig, int n) {
 	int i;
@@ -1438,11 +1499,149 @@ tscrolldown(Term *term, int orig, int n) {
 	selscroll(term, orig, n);
 }
 
+#if 0
+typedef struct _Scrollback {
+	Line *line;
+	struct _Scrollback *next;
+} Scrollback;
+
+typedef struct {
+	Scrollback *head;
+	Scrollback *tail;
+} ScrollbackFifo;
+
+// ScrollbackFifo *scrollback;
+// term->scrollback = scrollback_create();
+
+ScrollbackFifo *
+scrollback_create(void) {
+	return (ScrollbackFifo *)xmalloc(sizeof(ScrollbackFifo));
+}
+
+void
+scrollback_add(Term *term, Line *l) {
+	Scrollback *sb = (Scrollback *)xmalloc(sizeof(Scrollback));
+	sb->line = l;
+	sb->next = NULL;
+	if (term->scrollback->tail == NULL) {
+		term->scrollback->head = term->scrollback->tail = sb;
+	} else {
+		term->scrollback->tail->next = sb;
+		term->scrollback->tail = sb;
+	}
+}
+
+Line *
+scrollback_remove(Term *term) {
+	Scrollback *sb;
+	Line *l;
+
+	if ((sb = term->scrollback->head) == NULL) {
+		return NULL;
+	}
+
+	l = sb->line;
+
+	if ((term->scrollback->head = sb->next) == NULL) {
+		term->scrollback->tail = NULL;
+	}
+
+	free(sb);
+
+	return l;
+}
+#endif
+
+// ScrollbackList *sb;
+// term->sb = scrollback_create();
+
+ScrollbackList *
+scrollback_create(void) {
+	ScrollbackList *sb = (ScrollbackList *)xmalloc(sizeof(ScrollbackList));
+	sb->head = NULL;
+	sb->tail = NULL;
+	sb->total = 0;
+	return sb;
+}
+
+Glyph *
+scrollback_get(Term *term, int i) {
+	Scrollback *sb = term->sb->head;
+	for (int j = 0; j < i && sb; j++) sb = sb->next;
+	if (!sb) return NULL;
+	if (term->col != sb->col) {
+		sb->line = xrealloc(sb->line, term->col * sizeof(Glyph));
+	}
+	return sb->line;
+}
+
+void
+scrollback_add(Term *term, Glyph *l) {
+	Scrollback *sb = (Scrollback *)xmalloc(sizeof(Scrollback));
+	sb->line = l;
+	sb->next = NULL;
+	sb->prev = NULL;
+	sb->col = term->col;
+
+	Scrollback *h = term->sb->head;
+	term->sb->head = sb;
+	if (!term->sb->tail) {
+		term->sb->tail = sb;
+	}
+
+	if (h) {
+		sb->next = h;
+		h->prev = sb;
+	}
+
+	if (++term->sb->total > SCROLLBACK) {
+		term->sb->total--;
+		Scrollback *t = term->sb->tail;
+		term->sb->tail = t->prev;
+		t->prev->next = NULL;
+		free(t->line);
+		free(t);
+	}
+}
+
+// newline
+// tscrollup(term, term->top, 1);
 void
 tscrollup(Term *term, int orig, int n) {
 	int i;
 	Line temp;
 	LIMIT(n, 0, term->bot-orig+1);
+
+	if (orig == term->top && term->ybase == 0) {
+		//for (i = 0; i < n; i++) {
+
+		// Was using:
+		// int j = term->bot - n - orig;
+		// for(i = orig; i <= term->bot - n; i++) {
+
+		// for(i = term->bot - n; i >= orig; i--) {
+		for(i = orig; i <= orig + n - 1; i++) {
+			// end:
+			// term->scrollback[SCROLLBACK - 1 - (i - orig)] = term->line[i];
+			// memcpy(term->scrollback[SCROLLBACK - 1 - (i - orig)], term->line[i], term->col * sizeof(Glyph));
+			// memmove(term->scrollback + SCROLLBACK - 1 - j - 1, term->scrollback + SCROLLBACK - 1 - j, 1 * sizeof(Line));
+
+			// Was using:
+			// memmove(term->scrollback[SCROLLBACK - 1 - j - 1], term->scrollback[SCROLLBACK - 1 - j], term->col * sizeof(Glyph));
+			// memcpy(term->scrollback[SCROLLBACK - 1 - j], term->line[i], term->col * sizeof(Glyph));
+			// j--;
+
+			Glyph *l = xmalloc(term->col * sizeof(Glyph));
+			memcpy(l, term->line[i], term->col * sizeof(Glyph));
+			scrollback_add(term, l);
+
+			// beginning:
+			// term->scrollback[i - orig] = term->line[i];
+			// memcpy(term->scrollback[i - orig], term->line[i], term->col * sizeof(Glyph));
+			// memmove(term->scrollback[j + 1], term->scrollback[j], term->col * sizeof(Glyph));
+			// memcpy(term->scrollback[j], term->line[i], term->col * sizeof(Glyph));
+		}
+	}
 
 	tclearregion(term, 0, orig, term->col-1, orig+n-1);
 
@@ -2471,6 +2670,8 @@ tputc(Term *term, char *c, int len) {
 	}
 }
 
+static bool scrollback_allocated = false;
+
 int
 tresize(Term *term, int col, int row) {
 	int i;
@@ -2508,8 +2709,21 @@ tresize(Term *term, int col, int row) {
 	term->alt  = xrealloc(term->alt,  row * sizeof(Line));
 	term->dirty = xrealloc(term->dirty, row * sizeof(*term->dirty));
 	term->tabs = xrealloc(term->tabs, col * sizeof(*term->tabs));
+	term->scrollback = xrealloc(term->scrollback, SCROLLBACK * sizeof(Line));
+
+	if (!scrollback_allocated) {
+		scrollback_allocated = true;
+		for (i = 0; i < SCROLLBACK; i++) {
+			term->scrollback[i] = xcalloc(col, sizeof(Glyph));
+			memset(term->scrollback[i], 0, col * sizeof(Glyph));
+		}
+	}
 
 	/* resize each row to new width, zero-pad if needed */
+	for (i = 0; i < SCROLLBACK; i++) {
+		term->scrollback[i] = xrealloc(term->scrollback[i], col * sizeof(Glyph));
+		memset(term->scrollback[i], 0, col * sizeof(Glyph));
+	}
 	for(i = 0; i < minrow; i++) {
 		term->dirty[i] = 1;
 		term->line[i] = xrealloc(term->line[i], col * sizeof(Glyph));
@@ -3269,16 +3483,39 @@ drawregion(int x1, int y1, int x2, int y2) {
 	if(!(xw.state & WIN_VISIBLE))
 		return;
 
+	int ry;
+	bool sb = false;
 	for(y = y1; y < y2; y++) {
-		if(!focused_term->dirty[y])
+		ry = y + focused_term->ybase;
+		if (ry < 0) {
+			// end:
+			ry = SCROLLBACK + ry;
+			sb = true;
+			// beginning:
+			// ry = -ry - 1;
+		} else {
+			sb = false;
+		}
+
+		if(focused_term->ybase == 0 && !focused_term->dirty[y])
 			continue;
 
 		xtermclear(0, y, focused_term->col, y);
-		focused_term->dirty[y] = 0;
-		base = focused_term->line[y][0];
+		if (focused_term->ybase == 0) focused_term->dirty[y] = 0;
+		if (sb) {
+			// base = focused_term->scrollback[ry][0];
+			base = scrollback_get(focused_term, -(y + focused_term->ybase + 1))[0];
+		} else {
+			base = focused_term->line[ry][0];
+		}
 		ic = ib = ox = 0;
 		for(x = x1; x < x2; x++) {
-			new = focused_term->line[y][x];
+			if (sb) {
+				// new = focused_term->scrollback[ry][x];
+				new = scrollback_get(focused_term, -(y + focused_term->ybase + 1))[x];
+			} else {
+				new = focused_term->line[ry][x];
+			}
 			if(ena_sel && selected(x, y))
 				new.mode ^= ATTR_REVERSE;
 			if(ib > 0 && (ATTRCMP(base, new)
@@ -3299,6 +3536,79 @@ drawregion(int x1, int y1, int x2, int y2) {
 		if(ib > 0)
 			xdraws(buf, base, ox, y, ic, ib);
 	}
+
+#if 0
+	int ry;
+	for(y = y1; y < y2; y++) {
+		ry = y + focused_term->ybase;
+		if (ry < 0) {
+			// end:
+			ry = SCROLLBACK + ry;
+			// beginning:
+			//ry = -ry - 1;
+			//if(!focused_term->dirty[y])
+			//	continue;
+
+			xtermclear(0, y, focused_term->col, y);
+			//focused_term->dirty[y] = 0;
+			base = focused_term->scrollback[ry][0];
+			ic = ib = ox = 0;
+			for(x = x1; x < x2; x++) {
+				new = focused_term->scrollback[ry][x];
+				//new = focused_term->line[y][x];
+				if(ena_sel && selected(x, y))
+					new.mode ^= ATTR_REVERSE;
+				if(ib > 0 && (ATTRCMP(base, new)
+						|| ib >= DRAW_BUF_SIZ-UTF_SIZ)) {
+					xdraws(buf, base, ox, y, ic, ib);
+					ic = ib = 0;
+				}
+				if(ib == 0) {
+					ox = x;
+					base = new;
+				}
+
+				sl = utf8size(new.c);
+				memcpy(buf+ib, new.c, sl);
+				ib += sl;
+				++ic;
+			}
+			if(ib > 0)
+				xdraws(buf, base, ox, y, ic, ib);
+
+			continue;
+		}
+
+		if(!focused_term->dirty[y])
+			continue;
+
+		xtermclear(0, y, focused_term->col, y);
+		focused_term->dirty[y] = 0;
+		base = focused_term->line[ry][0];
+		ic = ib = ox = 0;
+		for(x = x1; x < x2; x++) {
+			new = focused_term->line[ry][x];
+			if(ena_sel && selected(x, y))
+				new.mode ^= ATTR_REVERSE;
+			if(ib > 0 && (ATTRCMP(base, new)
+					|| ib >= DRAW_BUF_SIZ-UTF_SIZ)) {
+				xdraws(buf, base, ox, y, ic, ib);
+				ic = ib = 0;
+			}
+			if(ib == 0) {
+				ox = x;
+				base = new;
+			}
+
+			sl = utf8size(new.c);
+			memcpy(buf+ib, new.c, sl);
+			ib += sl;
+			++ic;
+		}
+		if(ib > 0)
+			xdraws(buf, base, ox, y, ic, ib);
+	}
+#endif
 
 	xdrawcursor();
 	xdrawbar();
@@ -3521,16 +3831,28 @@ kpress(XEvent *ev) {
 			select_mode = false;
 			//tcursor(term, CURSOR_LOAD);
 			//if (cursor_was_hidden) term->mode |= MODE_HIDE;
+			term->ybase = normal_cursor.ybase;
 			tmoveto(term, normal_cursor.x, normal_cursor.y);
 			if (normal_cursor.hidden) term->mode |= MODE_HIDE;
+			redraw(0);
+		} else if (ksym == XK_slash) {
+			// start_search = true;
 		} else if (ksym == XK_h) {
 			tmoveto(term, term->c.x - 1, term->c.y);
 			if (visual_mode) CREATE_BMOTION;
 		} else if (ksym == XK_j) {
-			tmoveto(term, term->c.x, term->c.y + 1);
+			if (term->c.y == term->row - 1) {
+				tscrollback(term, 1);
+			} else {
+				tmoveto(term, term->c.x, term->c.y + 1);
+			}
 			if (visual_mode) CREATE_BMOTION;
 		} else if (ksym == XK_k) {
-			tmoveto(term, term->c.x, term->c.y - 1);
+			if (term->c.y == 0) {
+				tscrollback(term, -1);
+			} else {
+				tmoveto(term, term->c.x, term->c.y - 1);
+			}
 			if (visual_mode) CREATE_BMOTION;
 		} else if (ksym == XK_l) {
 			tmoveto(term, term->c.x + 1, term->c.y);
@@ -3557,18 +3879,16 @@ kpress(XEvent *ev) {
 			tscrolldown(term, term->top, 15);
 			if (visual_mode) CREATE_BMOTION;
 		} else if (ksym == XK_u && match(ControlMask, e->state)) {
-			// ttywrite(term, "\031", 1);
-			tscrollup(term, term->top, term->row / 2);
+			tscrollback(term, -(term->row / 2));
 			if (visual_mode) CREATE_BMOTION;
 		} else if (ksym == XK_d && match(ControlMask, e->state)) {
-			// ttywrite(term, "\005", 1);
-			tscrolldown(term, term->top, term->row / 2);
+			tscrollback(term, term->row / 2);
 			if (visual_mode) CREATE_BMOTION;
 		} else if (ksym == XK_b && match(ControlMask, e->state)) {
-			tscrollup(term, term->top, term->row);
+			tscrollback(term, -term->row);
 			if (visual_mode) CREATE_BMOTION;
 		} else if (ksym == XK_f && match(ControlMask, e->state)) {
-			tscrolldown(term, term->top, term->row);
+			tscrollback(term, term->row);
 			if (visual_mode) CREATE_BMOTION;
 		} else if (ksym == XK_v) {
 			visual_mode = true;
@@ -3583,8 +3903,10 @@ kpress(XEvent *ev) {
 				select_mode = false;
 				//tcursor(term, CURSOR_LOAD);
 				//if (cursor_was_hidden) term->mode |= MODE_HIDE;
+				term->ybase = normal_cursor.ybase;
 				tmoveto(term, normal_cursor.x, normal_cursor.y);
 				if (normal_cursor.hidden) term->mode |= MODE_HIDE;
+				redraw(0);
 			}
 		}
 		return;
@@ -3611,6 +3933,7 @@ kpress(XEvent *ev) {
 			normal_cursor.x = term->c.x;
 			normal_cursor.y = term->c.y;
 			normal_cursor.hidden = term->mode & MODE_HIDE;
+			normal_cursor.ybase = term->ybase;
 			term->mode &= ~MODE_HIDE;
 
 			tmoveto(term, 0, term->row - 1);
@@ -3749,6 +4072,8 @@ term_add(void) {
 		focused_term = term->next;
 		tnew(focused_term, terms->col, terms->row);
 	}
+
+	focused_term->sb = scrollback_create();
 
 	ttynew(focused_term);
 
@@ -3990,6 +4315,7 @@ run:
 	memset(terms, 0, sizeof(Term));
 	focused_term = terms;
 	tnew(focused_term, 80, 24);
+	terms->sb = scrollback_create();
 	xinit();
 	ttynew(focused_term);
 	selinit();
