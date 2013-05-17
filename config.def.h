@@ -149,8 +149,12 @@ static unsigned int defaultunderline = 7;
 /* Beware that overloading Button1 will disable the selection. */
 static Mousekey mshortcuts[] = {
 	/* keysym		mask		string */
+#if 0
 	{ Button4,		XK_ANY_MOD,	"\031"},
 	{ Button5,		XK_ANY_MOD,	"\005"},
+#endif
+	{ Button4,		ShiftMask,	"\031"},
+	{ Button5,		ShiftMask,	"\005"},
 };
 
 /* Internal keyboard shortcuts. */
