@@ -384,6 +384,7 @@ static void xtermclear(int, int, int, int);
 static void xunloadfont(Font *f);
 static void xunloadfonts(void);
 static void xresize(int, int);
+static void xdrawbar(void);
 
 static void expose(XEvent *);
 static void visibility(XEvent *);
@@ -3298,7 +3299,82 @@ drawregion(int x1, int y1, int x2, int y2) {
 		if(ib > 0)
 			xdraws(buf, base, ox, y, ic, ib);
 	}
+
 	xdrawcursor();
+	xdrawbar();
+}
+
+void
+xdrawbar_plain(void) {
+	// if (!bar_needs_refresh) return;
+	// bar_needs_refresh = false;
+
+	// for autohide
+	if (!terms->next) return;
+
+	int len = focused_term->col / 2;
+	char *out = (char *)malloc(len * sizeof(char));
+	int i = 0;
+	Term *term;
+	Glyph attr = {{' '}, ATTR_NULL, defaultfg, defaultbg};
+	char buf[20];
+
+	out[0] = '\0';
+
+	for (term = terms; term; term = term->next) {
+		i++;
+		if (term == focused_term) {
+			snprintf(buf, 20, "[%d] ", i);
+		} else {
+			snprintf(buf, 20, " %d  ", i);
+		}
+		strncat(out, buf, len);
+	}
+
+	xdraws(out, attr, 0, focused_term->row, strlen(out), strlen(out));
+	free(out);
+}
+
+void
+xdrawbar(void) {
+	// if (!bar_needs_refresh) return;
+	// bar_needs_refresh = false;
+
+	// for autohide
+	if (!terms->next) return;
+
+	int i = 0;
+	int drawn = 0;
+	Term *term;
+	Glyph attr = {{' '}, ATTR_NULL, defaultfg, defaultbg};
+	char buf[20];
+	int buflen;
+
+	for (term = terms; term; term = term->next) {
+		i++;
+		if (term == focused_term) {
+			snprintf(buf, 20, "[%d]", i);
+			attr.mode = ATTR_NULL;
+			attr.fg = 15;
+			attr.bg = defaultbg;
+		} else {
+			//if (term->has_activity) {
+			//	term->has_activity = false;
+			//	snprintf(buf, 20, " %d*", i);
+			//} else
+			snprintf(buf, 20, " %d ", i);
+			attr.mode = ATTR_NULL;
+			attr.fg = 6;
+			attr.bg = defaultbg;
+		}
+		buflen = strlen(buf);
+		if (drawn + buflen > term->col) {
+			break;
+		}
+		xdraws(buf, attr, drawn, focused_term->row, buflen, buflen);
+		drawn += 1;
+		drawn += buflen;
+	}
 }
 
 void
@@ -3661,6 +3737,11 @@ cresize(int width, int height) {
 	col = (xw.w - 2 * borderpx) / xw.cw;
 	row = (xw.h - 2 * borderpx) / xw.ch;
 
+	if (terms->next) { // <- for autohide
+		//row = MAX(row - 1, 0);
+		if (--row < 0) row = 0;
+	}
+
 	Term *term;
 	for (term = terms; term; term = term->next) {
 		tresize(term, col, row);
@@ -3683,8 +3764,11 @@ void
 tab_add(void) {
 	Term *term;
 
+	//bar_needs_refresh = true;
+
 	if (!terms) {
 		terms = (Term *)xmalloc(sizeof(Term));
+		memset(terms, 0, sizeof(Term));
 		focused_term = terms;
 		tnew(focused_term, 80, 24);
 	} else {
@@ -3699,11 +3783,18 @@ tab_add(void) {
 
 	ttynew(focused_term);
 
+	// for autohide
+	// just got two tabs
+	if (terms->next && !terms->next->next) {
+		cresize(0, 0);
+	}
+
 	redraw(0);
 }
 
 void
 tab_remove(Term *target) {
+	//bar_needs_refresh = true;
 	if (terms == target) {
 		terms = terms->next;
 		if (!terms) exit(EXIT_SUCCESS);
@@ -3718,11 +3809,21 @@ tab_remove(Term *target) {
 		focused_term = term;
 	}
 	free(target);
+
+	// for autohide
+	// just fell back to one tab
+	// NOTE: Why does this randomly segfault without `terms &&`?
+	// This is probably a sign of a bigger problem.
+	if (terms && !terms->next) {
+		cresize(0, 0);
+	}
+
 	redraw(0);
 }
 
 void
 tab_focus(Term *target) {
+	//bar_needs_refresh = true;
 	focused_term = target == NULL ? terms : target;
 	redraw(0);
 }
@@ -3917,6 +4018,7 @@ run:
 	XSetLocaleModifiers("");
 	// tab_add();
 	terms = (Term *)xmalloc(sizeof(Term));
+	memset(terms, 0, sizeof(Term));
 	focused_term = terms;
 	tnew(focused_term, 80, 24);
 	xinit();
