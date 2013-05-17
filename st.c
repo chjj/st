@@ -3305,37 +3305,6 @@ drawregion(int x1, int y1, int x2, int y2) {
 }
 
 void
-xdrawbar_plain(void) {
-	// if (!bar_needs_refresh) return;
-	// bar_needs_refresh = false;
-
-	// for autohide
-	if (!terms->next) return;
-
-	int len = focused_term->col / 2;
-	char *out = (char *)malloc(len * sizeof(char));
-	int i = 0;
-	Term *term;
-	Glyph attr = {{' '}, ATTR_NULL, defaultfg, defaultbg};
-	char buf[20];
-
-	out[0] = '\0';
-
-	for (term = terms; term; term = term->next) {
-		i++;
-		if (term == focused_term) {
-			snprintf(buf, 20, "[%d] ", i);
-		} else {
-			snprintf(buf, 20, " %d  ", i);
-		}
-		strncat(out, buf, len);
-	}
-
-	xdraws(out, attr, 0, focused_term->row, strlen(out), strlen(out));
-	free(out);
-}
-
-void
 xdrawbar(void) {
 	// if (!bar_needs_refresh) return;
 	// bar_needs_refresh = false;
