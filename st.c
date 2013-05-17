@@ -1319,6 +1319,11 @@ ttyread(Term *term) {
 	// TODO: Potentially buffer data here:
 	// if (...) xrealloc(select_buf, (select_buf_size *= 2));
 
+	/* scroll down if we receive bytes while examining scrollback */
+	if (term->ybase < 0) {
+		tscrollback(term, -term->ybase);
+	}
+
 	/* process every complete utf8 char */
 	buflen += ret;
 	ptr = buf;
@@ -1453,7 +1458,7 @@ int
 set_message(char *fmt, ...) {
 	int ret;
 
-	char *text = (char *)malloc(100 * sizeof(char));
+	char *text = (char *)xmalloc(100 * sizeof(char));
 	memset(text, 0, 100 * sizeof(char));
 
 	va_list list;
@@ -1466,63 +1471,6 @@ set_message(char *fmt, ...) {
 
 	return ret;
 }
-
-#if 0
-void
-tscrollback(Term *term, int n) {
-	// if (term->mode & MODE_APPKEYPAD) return;
-
-	int b = term->ybase;
-
-	term->ybase += n;
-	if (term->ybase > 0) {
-		term->ybase = 0;
-	} else if (term->ybase < -term->sb->total) {
-		term->ybase = -term->sb->total;
-	}
-
-	int i;
-	if (b != 0 && term->ybase == 0) {
-		for (i = 0; i < term->row; i++) {
-			//term->line[i] = xrealloc(term->last_line[i], term->col * sizeof(Glyph));
-			term->line[i] = term->last_line[i];
-			term->dirty[i] = 1;
-		}
-	} else {
-		//Line *temp = xmalloc(term->row * sizeof(Line));
-		//if (!term->last_line) {
-			//term->last_line = xmalloc(term->row * sizeof(Line));
-		//} else {
-			//term->last_line = xrealloc(term->last_line, term->row * sizeof(Line));
-		//}
-		for (i = 0; i < term->row; i++) {
-			//Glyph *l = xmalloc(term->col * sizeof(Glyph));
-			//memcpy(l, term->line[i], term->col * sizeof(Glyph));
-			////temp[i] = l;
-			//term->last_line[i] = l;
-			memcpy(term->last_line[i], term->line[i], term->col * sizeof(Glyph));
-		}
-		int si;
-		for (i = 0; i < term->row; i++) {
-		// possibly do backwards and get rid of temp
-		// for (i = term->row - 1; i >= 0; i--) {
-			si = i + term->ybase;
-			if (si < 0) {
-				term->line[i] = scrollback_get(term, -(si + 1));
-			} else {
-				term->line[i] = term->last_line[si];
-				//term->line[i] = temp[si];
-			}
-			term->dirty[i] = 1;
-		}
-		//free(temp);
-	}
-
-	// set_message("ybase: %d\n", term->ybase);
-
-	redraw(0);
-}
-#endif
 
 void
 tscrollback(Term *term, int n) {
