@@ -978,8 +978,8 @@ selcopy(void) {
 
 		/* append every set & selected glyph to the selection */
 		for(y = sel.b.y; y < sel.e.y + 1; y++) {
-			if (focused_term->ybase == 0) {
-				gp = &focused_term->line[y][0];
+			if (focused_term->c.y + focused_term->ybase >= 0) {
+				gp = &focused_term->line[y + focused_term->ybase][0];
 			} else {
 				// TODO: Potentially check to make sure `l` is not null.
 				Glyph *l = scrollback_get(focused_term, -(y + focused_term->ybase + 1));
@@ -1018,8 +1018,8 @@ selcopy(void) {
 			 */
 			if(y == sel.e.y) {
 				i = focused_term->col;
-				if (focused_term->ybase == 0) {
-					while(--i > 0 && focused_term->line[y][i].c[0] == ' ')
+				if (focused_term->c.y + focused_term->ybase >= 0) {
+					while(--i > 0 && focused_term->line[y + focused_term->ybase][i].c[0] == ' ')
 						/* nothing */;
 				} else {
 					Glyph *l = scrollback_get(focused_term, -(y + focused_term->ybase + 1));
@@ -3316,8 +3316,8 @@ xdrawcursor(void) {
 	LIMIT(oldx, 0, focused_term->col-1);
 	LIMIT(oldy, 0, focused_term->row-1);
 
-	if (focused_term->ybase == 0) {
-		memcpy(g.c, focused_term->line[focused_term->c.y][focused_term->c.x].c, UTF_SIZ);
+	if (focused_term->c.y + focused_term->ybase >= 0) {
+		memcpy(g.c, focused_term->line[focused_term->c.y + focused_term->ybase][focused_term->c.x].c, UTF_SIZ);
 	} else if (select_mode) {
 		Glyph *l = scrollback_get(focused_term, -(focused_term->c.y + focused_term->ybase + 1));
 		memcpy(g.c, l[focused_term->c.x].c, UTF_SIZ);
@@ -3327,8 +3327,14 @@ xdrawcursor(void) {
 
 	/* remove the old cursor */
 	sl = utf8size(focused_term->line[oldy][oldx].c);
-	xdraws(focused_term->line[oldy][oldx].c, focused_term->line[oldy][oldx], oldx,
-			oldy, 1, sl);
+	if (oldy + focused_term->ybase >= 0) {
+		xdraws(focused_term->line[oldy + focused_term->ybase][oldx].c,
+				focused_term->line[oldy + focused_term->ybase][oldx], oldx,
+				oldy, 1, sl);
+	} else {
+		Glyph *l = scrollback_get(focused_term, -(focused_term->c.y + focused_term->ybase + 1));
+		xdraws(l[oldx].c, l[oldx], oldx, oldy, 1, sl);
+	}
 
 	/* draw the new one */
 	if(!(IS_SET(focused_term, MODE_HIDE))) {
@@ -3725,13 +3731,62 @@ kpress(XEvent *ev) {
 			tmoveto(term, 0, term->c.y);
 			if (visual_mode) CREATE_BMOTION;
 		} else if (ksym == XK_w || ksym == XK_W) {
-			tmoveto(term, term->c.x + 5, term->c.y);
+			int cx = term->c.x;
+			// TODO: Make a get_real_line() function, which checks scrollback.
+			// TODO: Handle scrollback when the alternate buffer is active.
+			// TODO: NOTE: selsnap and other functions may need to be updated to
+			// use ybase in line[].
+			Glyph *l = term->c.y + term->ybase >= 0
+				? term->line[term->c.y + term->ybase]
+				: scrollback_get(term, -(term->c.y + term->ybase + 1));
+			bool saw_space = false;
+			while (cx < term->col) {
+				if (l[cx].c && l[cx].c[0] <= ' ') {
+					saw_space = true;
+				} else if (saw_space) {
+					break;
+				}
+				cx++;
+			}
+			tmoveto(term, cx, term->c.y);
 			if (visual_mode) CREATE_BMOTION;
 		} else if (ksym == XK_e || ksym == XK_E) {
-			tmoveto(term, term->c.x + 5, term->c.y);
+			int cx = term->c.x;
+			Glyph *l = term->c.y + term->ybase >= 0
+				? term->line[term->c.y + term->ybase]
+				: scrollback_get(term, -(term->c.y + term->ybase + 1));
+			bool saw_space = false;
+			while (cx < term->col) {
+				if (l[cx].c && l[cx].c[0] <= ' ') {
+					if (saw_space && (cx - 1 >= 0 && l[cx-1].c && l[cx-1].c[0] > ' ')) {
+						cx--;
+						break;
+					} else {
+						saw_space = true;
+					}
+				}
+				cx++;
+			}
+			tmoveto(term, cx, term->c.y);
 			if (visual_mode) CREATE_BMOTION;
 		} else if (ksym == XK_b || ksym == XK_B) {
-			tmoveto(term, term->c.x - 5, term->c.y);
+			int cx = term->c.x;
+			Glyph *l = term->c.y + term->ybase >= 0
+				? term->line[term->c.y + term->ybase]
+				: scrollback_get(term, -(term->c.y + term->ybase + 1));
+			bool saw_space = false;
+			while (cx >= 0) {
+				if (l[cx].c && l[cx].c[0] <= ' ') {
+					if (saw_space && (cx + 1 < term->col && l[cx+1].c && l[cx+1].c[0] > ' ')) {
+						cx++;
+						break;
+					} else {
+						saw_space = true;
+					}
+				}
+				cx--;
+			}
+			tmoveto(term, cx, term->c.y);
 			if (visual_mode) CREATE_BMOTION;
 		} else if (ksym == XK_dollar) {
 			tmoveto(term, term->col - 1, term->c.y);
