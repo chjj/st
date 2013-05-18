@@ -471,6 +471,7 @@ static bool visual_mode = false;
 //static bool cursor_was_hidden = false;
 static struct { int x; int y; bool hidden; int ybase; } normal_cursor;
 static char *status_msg = NULL;
+static struct timeval status_time;
 static CSIEscape csiescseq;
 static STREscape strescseq;
 static pid_t pid;
@@ -1468,6 +1469,7 @@ set_message(char *fmt, ...) {
 
 	if (status_msg) free(status_msg);
 	status_msg = text;
+	gettimeofday(&status_time, NULL);
 
 	return ret;
 }
@@ -1580,6 +1582,8 @@ scrollback_add(Term *term, Glyph *l) {
 
 	// TODO: Halve the scrollback instead, similar to tty.js.
 	if (++term->sb->total > SCROLLBACK) {
+		// int h = SCROLLBACK / 2;
+		// while (h--) {
 		term->sb->total--;
 		Scrollback *t = term->sb->tail;
 		term->sb->tail = t->prev;
@@ -3524,8 +3528,8 @@ xdrawbar(void) {
 			return;
 		}
 		xdraws(status_msg, attr, drawn, focused_term->row, l, l);
-		free(status_msg);
-		status_msg = NULL;
+		//free(status_msg);
+		//status_msg = NULL;
 	}
 }
 
@@ -4149,6 +4153,11 @@ run(void) {
 					continue;
 				if(handler[ev.type])
 					(handler[ev.type])(&ev);
+			}
+
+			if (status_msg && TIMEDIFF(now, status_time) > 3000) {
+				free(status_msg);
+				status_msg = NULL;
 			}
 
 			draw();
