@@ -363,7 +363,7 @@ static void tscrollback(Term *term, int n);
 
 static inline bool match(uint, uint);
 static void ttynew(Term *);
-static void ttyread(Term *);
+static int ttyread(Term *);
 static void ttyresize(Term *);
 static void ttywrite(Term *, const char *, size_t);
 
@@ -1274,7 +1274,7 @@ dump(char c) {
 		fprintf(stderr, "\n");
 }
 
-void
+int
 ttyread(Term *term) {
 	static char buf[BUFSIZ];
 	static int buflen = 0;
@@ -1290,12 +1290,12 @@ ttyread(Term *term) {
 		die("Couldn't read from shell: %s\n", SERRNO);
 #else
 		term_remove(term);
-		return;
 #endif
+		return -1;
 	}
 
 	/* ignore screen output while selecting */
-	if (tstate != S_NORMAL) return;
+	if (tstate != S_NORMAL) return 0;
 	// TODO: Potentially buffer data here:
 	// if (...) xrealloc(select_buf, (select_buf_size *= 2));
 
@@ -1317,6 +1317,8 @@ ttyread(Term *term) {
 
 	/* keep any uncomplete utf8 char for the next call */
 	memmove(buf, ptr, buflen);
+
+	return 0;
 }
 
 void
@@ -4266,9 +4268,7 @@ term_remove(Term *target) {
 
 	// for autohide
 	// just fell back to one tab
-	// NOTE: Why does this randomly segfault without `terms &&`?
-	// This is probably a sign of a bigger problem.
-	if (terms && !terms->next) {
+	if (!terms->next) {
 		cresize(0, 0);
 	}
 
@@ -4322,7 +4322,7 @@ run(void) {
 
 	for(xev = actionfps;;) {
 		FD_ZERO(&rfd);
-		Term *term;
+		Term *term, *next;
 		for (term = terms; term; term = term->next) {
 			FD_SET(term->cmdfd, &rfd);
 		}
@@ -4337,9 +4337,13 @@ run(void) {
 				continue;
 			die("select failed: %s\n", SERRNO);
 		}
-		for (term = terms; term; term = term->next) {
+		for (term = terms; term; term = next) {
+			next = term->next;
 			if(FD_ISSET(term->cmdfd, &rfd)) {
-				ttyread(term);
+				if (ttyread(term) == -1) {
+					/* potentially move if-block from ttyread here */
+					continue;
+				}
 				if(blinktimeout) {
 					blinkset = tattrset(term, ATTR_BLINK);
 					if(!blinkset && term->mode & ATTR_BLINK)
