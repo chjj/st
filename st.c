@@ -193,19 +193,6 @@ typedef struct {
 	int narg;	      /* nb of args */
 } STREscape;
 
-typedef struct _Scrollback {
-	Glyph *line;
-	struct _Scrollback *next;
-	struct _Scrollback *prev;
-	int col;
-} Scrollback;
-
-typedef struct {
-	Scrollback *head;
-	Scrollback *tail;
-	int total;
-} ScrollbackList;
-
 /* Internal representation of the screen */
 typedef struct _Term {
 	int row;	/* nb row */
@@ -224,7 +211,9 @@ typedef struct _Term {
 	int cmdfd;
 	pid_t pid;
 	int ybase;
-	ScrollbackList *sb;
+	Line *sb;
+	int sb_total;
+	int sb_pos;
 	Line *last_line;
 } Term;
 
@@ -427,7 +416,6 @@ static void selcopy(void);
 static void selscroll(Term *, int, int);
 static void selsnap(int, int *, int *, int);
 
-static ScrollbackList *scrollback_create(void);
 static Glyph *scrollback_get(Term *, int);
 static void scrollback_add(Term *, int);
 
@@ -1484,8 +1472,8 @@ tscrollback(Term *term, int n) {
 	term->ybase += n;
 	if (term->ybase > 0) {
 		term->ybase = 0;
-	} else if (term->ybase < -term->sb->total) {
-		term->ybase = -term->sb->total;
+	} else if (term->ybase < -term->sb_total) {
+		term->ybase = -term->sb_total;
 	}
 
 	// Do not bother handling scrollback if the ybase didn't change.
@@ -1537,68 +1525,28 @@ tscrolldown(Term *term, int orig, int n) {
 	selscroll(term, orig, n);
 }
 
-ScrollbackList *
-scrollback_create(void) {
-	ScrollbackList *sb = (ScrollbackList *)xmalloc(sizeof(ScrollbackList));
-	sb->head = NULL;
-	sb->tail = NULL;
-	sb->total = 0;
-	return sb;
-}
-
-// I was trying to look up to figure out what O
-// this is, and then I realized it is O(ridiculous).
-// TODO: Optimize using nerdier data structures.
 Glyph *
 scrollback_get(Term *term, int i) {
-	// if (i < 0) i = -(i + 1);
-	Scrollback *sb = term->sb->head;
-	for (int j = 0; j < i && sb; j++) sb = sb->next;
-	if (!sb) return NULL;
-	if (term->col != sb->col) {
-		sb->line = xrealloc(sb->line, term->col * sizeof(Glyph));
+	i = term->sb_pos - 1 - i;
+	if (i < 0) {
+		i = term->sb_total + i;
+		if (i < term->sb_pos || term->sb_total != SCROLLBACK) {
+			die("bad scrollback!\n");
+		}
 	}
-	return sb->line;
+	return term->sb[i];
 }
 
 void
 scrollback_add(Term *term, int i) {
-	Scrollback *sb = (Scrollback *)xmalloc(sizeof(Scrollback));
-	sb->next = NULL;
-	sb->prev = NULL;
-	sb->col = term->col;
-
-	sb->line = xmalloc(term->col * sizeof(Glyph));
-	memcpy(sb->line, term->line[i], term->col * sizeof(Glyph));
-
-	Scrollback *h = term->sb->head;
-	term->sb->head = sb;
-	if (!term->sb->tail) {
-		term->sb->tail = sb;
+	if (term->sb_pos == SCROLLBACK) {
+		term->sb_pos = 0;
 	}
-
-	if (h) {
-		sb->next = h;
-		h->prev = sb;
-	}
-
-	// Halve the saved scrollback when we hit the limit.
-	// We could do this one at a time, but doing half
-	// at a time gets it all done at once, which ensures
-	// there is no persistent performance hit.
-	if (++term->sb->total > SCROLLBACK) {
-#ifndef NO_HALVE_SCROLLBACK
-		while (term->sb->total > (SCROLLBACK / 2)) {
-#endif
-			term->sb->total--;
-			Scrollback *t = term->sb->tail;
-			term->sb->tail = t->prev;
-			t->prev->next = NULL;
-			free(t->line);
-			free(t);
-#ifndef NO_HALVE_SCROLLBACK
-		}
-#endif
+	term->sb[term->sb_pos] = (Glyph *)xmalloc(term->col * sizeof(Glyph));
+	memcpy(term->sb[term->sb_pos], term->line[i], term->col * sizeof(Glyph));
+	term->sb_pos++;
+	if (term->sb_total != SCROLLBACK) {
+		term->sb_total++;
 	}
 }
 
@@ -2683,6 +2631,16 @@ tresize(Term *term, int col, int row) {
 	term->tabs = xrealloc(term->tabs, col * sizeof(*term->tabs));
 	term->last_line = xrealloc(term->last_line, row * sizeof(Line));
 
+	/* resize the scrollback */
+	if (!term->sb) {
+		term->sb = xmalloc(SCROLLBACK * sizeof(Line));
+		memset(term->sb, 0, SCROLLBACK * sizeof(Line));
+	}
+	// if (term->col != col) {
+	for(i = 0; i < SCROLLBACK; i++) {
+		term->sb[i] = xrealloc(term->sb[i], col * sizeof(Glyph));
+	}
+
 	/* resize each row to new width, zero-pad if needed */
 	for(i = 0; i < minrow; i++) {
 		term->dirty[i] = 1;
@@ -3714,7 +3672,7 @@ kpress(XEvent *ev) {
 #define UPDATE_SCROLL \
 	set_message("%d%%", \
 		(-term->ybase * 100) \
-		/ (term->sb->total + term->row)), xdrawbar()
+		/ (term->sb_total + term->row)), xdrawbar()
 
 #define GET_LINE(t, i) \
 	((i) >= 0 \
@@ -3787,14 +3745,14 @@ kpress(XEvent *ev) {
 							set_message("Search wrapped. Continuing at TOP.");
 							wrapped = true;
 							y = 0;
-							yb = -term->sb->total;
+							yb = -term->sb_total;
 						}
 					}
 				} else {
 					y--;
 					if (y < 0) {
 						y++;
-						if (yb > -term->sb->total) {
+						if (yb > -term->sb_total) {
 							y = term->row - 1; // necessary for wrapped, but why?
 							yb--;
 						} else {
@@ -3889,7 +3847,7 @@ kpress(XEvent *ev) {
 			UPDATE_SCROLL;
 		} else if (ksym == XK_g || ksym == XK_G) {
 			if (ksym == XK_g) {
-				tscrollback(term, -term->ybase + -term->sb->total);
+				tscrollback(term, -term->ybase + -term->sb_total);
 				tmoveto(term, 0, 0);
 			} else if (ksym == XK_G) {
 				tscrollback(term, -term->ybase + 0);
@@ -3995,7 +3953,7 @@ kpress(XEvent *ev) {
 			if (ksym == XK_braceleft) {
 				if (y < 0) {
 					y++;
-					if (yb > -term->sb->total) yb--;
+					if (yb > -term->sb_total) yb--;
 				}
 			} else if (ksym == XK_braceright) {
 				if (y >= term->row) {
@@ -4034,7 +3992,7 @@ kpress(XEvent *ev) {
 					y--;
 					if (y < 0) {
 						y++;
-						if (yb > -term->sb->total) yb--;
+						if (yb > -term->sb_total) yb--;
 						else break;
 					}
 				} else if (ksym == XK_braceright) {
@@ -4050,7 +4008,7 @@ kpress(XEvent *ev) {
 			if (!found) {
 				if (ksym == XK_braceleft) {
 					y = 0;
-					yb = -term->sb->total;
+					yb = -term->sb_total;
 				} else if (ksym == XK_braceright) {
 					y = term->row - 1;
 					yb = 0;
@@ -4263,8 +4221,6 @@ term_add(void) {
 		tnew(focused_term, terms->col, terms->row);
 	}
 
-	focused_term->sb = scrollback_create();
-
 	ttynew(focused_term);
 
 	// for autohide
@@ -4279,6 +4235,7 @@ term_add(void) {
 void
 term_remove(Term *target) {
 	//bar_needs_refresh = true;
+
 	if (terms == target) {
 		terms = terms->next;
 		if (!terms) exit(EXIT_SUCCESS);
@@ -4292,7 +4249,6 @@ term_remove(Term *target) {
 		term->next = target->next;
 		focused_term = term;
 	}
-	free(target);
 
 	// for autohide
 	// just fell back to one tab
@@ -4510,7 +4466,6 @@ run:
 	memset(terms, 0, sizeof(Term));
 	focused_term = terms;
 	tnew(focused_term, 80, 24);
-	terms->sb = scrollback_create();
 	xinit();
 	ttynew(focused_term);
 	selinit();
