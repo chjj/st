@@ -1464,7 +1464,7 @@ set_message(char *fmt, ...) {
 
 	va_list list;
 	va_start(list, fmt);
-	ret = snprintf(text, 100 * sizeof(char), fmt, list);
+	ret = vsnprintf(text, 100 * sizeof(char), fmt, list);
 	va_end(list);
 
 	if (status_msg) free(status_msg);
@@ -1474,13 +1474,16 @@ set_message(char *fmt, ...) {
 	return ret;
 }
 
-// TODO: Figure out why some lines disappear after pressing `q` in select mode.
 void
 tscrollback(Term *term, int n) {
-	if (term->mode & MODE_APPKEYPAD) return;
+	if (term->mode & MODE_APPKEYPAD) {
+		return;
+	}
 
-	int b = term->ybase;
+	int base = term->ybase;
+	int i, y;
 
+	// Offset ybase, limit.
 	term->ybase += n;
 	if (term->ybase > 0) {
 		term->ybase = 0;
@@ -1488,34 +1491,33 @@ tscrollback(Term *term, int n) {
 		term->ybase = -term->sb->total;
 	}
 
-	int i;
-	if (b != 0 && term->ybase == 0) {
+	// Do not bother handling scrollback if the ybase didn't change.
+	if (term->ybase == base) {
+		return;
+	}
+
+	// If `term->line` is still at the very bottom and we're about to switch to
+	// scrollback, save the current lines in a buffer to remember them.
+	if (base == 0) {
 		for (i = 0; i < term->row; i++) {
-			term->line[i] = term->last_line[i];
-			term->dirty[i] = 1;
-		}
-	} else {
-		if (b == 0) { // make sure this is the non-scrollback
-		//if (b == 0 && term->base < 0) { // make sure this is the non-scrollback
-			for (i = 0; i < term->row; i++) {
-				memcpy(term->last_line[i], term->line[i], term->col * sizeof(Glyph));
-			}
-		}
-		int si;
-		for (i = 0; i < term->row; i++) {
-			si = i + term->ybase;
-			if (si < 0) {
-				term->line[i] = scrollback_get(term, -(si + 1));
-			} else {
-				term->line[i] = term->last_line[si];
-			}
-			term->dirty[i] = 1;
+			memcpy(term->last_line[i], term->line[i], term->col * sizeof(Glyph));
 		}
 	}
 
+	// Get the "real" line based on ybase.
+	for (i = 0; i < term->row; i++) {
+		y = i + term->ybase;
+		if (y < 0) {
+			memcpy(term->line[i], scrollback_get(term, -(y + 1)), term->col * sizeof(Glyph));
+		} else {
+			memcpy(term->line[i], term->last_line[y], term->col * sizeof(Glyph));
+		}
+		term->dirty[i] = 1;
+	}
+
+	// Ensure a redraw of the screen.
 	redraw(0);
 }
-
 
 void
 tscrolldown(Term *term, int orig, int n) {
@@ -2657,6 +2659,7 @@ tresize(Term *term, int col, int row) {
 		for(/* i = 0 */; i < slide; i++) {
 			free(term->line[i]);
 			free(term->alt[i]);
+			free(term->last_line[i]);
 		}
 		memmove(term->line, term->line + slide, row * sizeof(Line));
 		memmove(term->alt, term->alt + slide, row * sizeof(Line));
@@ -3346,6 +3349,8 @@ xdrawcursor(void) {
 	LIMIT(oldx, 0, focused_term->col-1);
 	LIMIT(oldy, 0, focused_term->row-1);
 
+	// TODO: Use better check to tell whether cursor is one screen even if the
+	// ybase is a little bit negative.
 	if (focused_term->ybase == 0 || select_mode) {
 		memcpy(g.c, focused_term->line[focused_term->c.y][focused_term->c.x].c, UTF_SIZ);
 	} else {
@@ -3493,6 +3498,9 @@ xdrawbar(void) {
 
 	for (term = terms; term; term = term->next) {
 		i++;
+		//if (term->title) {
+		//  snprintf(buf, 40, "[%d] %s", i, term->title);
+		//} else
 		if (term == focused_term) {
 			snprintf(buf, 20, "[%d]", i);
 			attr.mode = ATTR_NULL;
@@ -3710,6 +3718,8 @@ kpress(XEvent *ev) {
 			//if (cursor_was_hidden) term->mode |= MODE_HIDE;
 
 			tscrollback(term, normal_cursor.ybase - term->ybase);
+			//tscrollback(term, -term->ybase);
+
 			//term->ybase = normal_cursor.ybase;
 
 			tmoveto(term, normal_cursor.x, normal_cursor.y);
@@ -3933,8 +3943,10 @@ kpress(XEvent *ev) {
 			tscrollback(term, term->row);
 			if (visual_mode) CREATE_BMOTION;
 		} else if (ksym == XK_v) {
-			visual_mode = true;
-			CREATE_BPRESS;
+			if (!visual_mode) {
+				visual_mode = true;
+				CREATE_BPRESS;
+			}
 		} else if (ksym == XK_y) {
 			if (visual_mode) {
 				CREATE_BRELEASE;
@@ -3947,6 +3959,8 @@ kpress(XEvent *ev) {
 				//if (cursor_was_hidden) term->mode |= MODE_HIDE;
 
 				tscrollback(term, normal_cursor.ybase - term->ybase);
+				//tscrollback(term, -term->ybase);
+
 				//term->ybase = normal_cursor.ybase;
 
 				tmoveto(term, normal_cursor.x, normal_cursor.y);
@@ -4114,6 +4128,7 @@ term_add(void) {
 		}
 		if (!term) die("no terminal found\n");
 		term->next = (Term *)xmalloc(sizeof(Term));
+		memset(term->next, 0, sizeof(Term));
 		focused_term = term->next;
 		tnew(focused_term, terms->col, terms->row);
 	}
