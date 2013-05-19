@@ -3449,9 +3449,6 @@ drawregion(int x1, int y1, int x2, int y2) {
 
 void
 xdrawbar(void) {
-	// if (!bar_needs_refresh) return;
-	// bar_needs_refresh = false;
-
 	// for autohide
 	if (!terms->next) return;
 
@@ -4203,8 +4200,6 @@ void
 term_add(void) {
 	Term *term;
 
-	//bar_needs_refresh = true;
-
 	if (!terms) {
 		terms = (Term *)xmalloc(sizeof(Term));
 		memset(terms, 0, sizeof(Term));
@@ -4234,7 +4229,7 @@ term_add(void) {
 
 void
 term_remove(Term *target) {
-	//bar_needs_refresh = true;
+	int i;
 
 	if (terms == target) {
 		terms = terms->next;
@@ -4250,6 +4245,25 @@ term_remove(Term *target) {
 		focused_term = term;
 	}
 
+	// Free up memory
+	for (i = 0; i < target->row; i++) {
+		free(target->line[i]);
+		free(target->alt[i]);
+		free(target->last_line[i]);
+	}
+
+	for (i = 0; i < SCROLLBACK; i++) {
+		free(target->sb[i]);
+	}
+
+	free(target->line);
+	free(target->alt);
+	free(target->last_line);
+	free(target->sb);
+	free(target->dirty);
+	free(target->tabs);
+	free(target);
+
 	// for autohide
 	// just fell back to one tab
 	// NOTE: Why does this randomly segfault without `terms &&`?
@@ -4263,7 +4277,6 @@ term_remove(Term *target) {
 
 void
 term_focus(Term *target) {
-	//bar_needs_refresh = true;
 	focused_term = target == NULL ? terms : target;
 	redraw(0);
 }
