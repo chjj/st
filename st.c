@@ -3462,7 +3462,7 @@ xdrawbar(void) {
 	}
 
 	int i = 0;
-	int drawn = 0;
+	int drawn = 1;
 	Term *term;
 	Glyph attr = {{' '}, ATTR_NULL, defaultfg, defaultbg};
 	char buf[60];
@@ -3472,21 +3472,22 @@ xdrawbar(void) {
 
 	for (term = terms; term; term = term->next) {
 		i++;
-		if (term == focused_term) {
-			if (term->title) {
-				snprintf(buf, sizeof(buf), "[%d] %s", i, term->title);
+		if (term->title) {
+			if (alwaysshownumber) {
+				snprintf(buf, sizeof(buf), "%d:%s%s", i,
+					term->title, term->has_activity ? "*" : "");
 			} else {
-				snprintf(buf, sizeof(buf), "[%d]", i);
+				snprintf(buf, sizeof(buf), "%s%s",
+					term->title, term->has_activity ? "*" : "");
 			}
+		} else {
+			snprintf(buf, sizeof(buf), "%d%s", i, term->has_activity ? "*" : "");
+		}
+		if (term == focused_term) {
 			attr.mode = ATTR_NULL;
 			attr.fg = 15;
 			attr.bg = defaultbg;
 		} else {
-			if (term->title) {
-				snprintf(buf, sizeof(buf), " %d%s %s", i, term->has_activity ? "*" : "", term->title);
-			} else {
-				snprintf(buf, sizeof(buf), " %d%s ", i, term->has_activity ? "*" : "");
-			}
 			attr.mode = ATTR_NULL;
 			attr.fg = 6;
 			attr.bg = defaultbg;
@@ -3496,7 +3497,7 @@ xdrawbar(void) {
 			break;
 		}
 		xdraws(buf, attr, drawn, focused_term->row, buflen, buflen);
-		drawn += 1;
+		drawn += 2;
 		drawn += buflen;
 	}
 

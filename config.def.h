@@ -34,6 +34,9 @@ static bool showactivity = true;
 /* autohide statusbar */
 static bool autohide = true;
 
+/* always show tab number */
+static bool alwaysshownumber = false;
+
 /* alt screens */
 static bool allowaltscreen = true;
 
