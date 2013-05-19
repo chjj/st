@@ -215,6 +215,8 @@ typedef struct _Term {
 	int sb_total;
 	int sb_pos;
 	Line *last_line;
+	bool has_activity;
+	char *title;
 } Term;
 
 /* Purely graphic info */
@@ -456,6 +458,7 @@ static Term *focused_term;
 enum tstate_t {
 	S_NORMAL,
 	S_PREFIX,
+	S_RENAME,
 	S_SELECT,
 	S_VISUAL,
 	S_SEARCH
@@ -464,7 +467,7 @@ static enum tstate_t tstate = S_NORMAL;
 static struct { int x; int y; bool hidden; int ybase; } normal_cursor;
 static char *status_msg = NULL;
 static struct timeval status_time;
-static struct { bool up; char text[60]; int pos; } search;
+static struct { int flag; char text[60]; int pos; } entry;
 static CSIEscape csiescseq;
 static STREscape strescseq;
 static pid_t pid;
@@ -1298,6 +1301,9 @@ ttyread(Term *term) {
 	if (tstate != S_NORMAL) return 0;
 	// TODO: Potentially buffer data here:
 	// if (...) xrealloc(select_buf, (select_buf_size *= 2));
+
+	/* mark activity */
+	term->has_activity = true;
 
 	/* scroll down if we receive bytes while examining scrollback */
 	if (term->ybase < 0) {
@@ -3458,27 +3464,28 @@ xdrawbar(void) {
 	int drawn = 0;
 	Term *term;
 	Glyph attr = {{' '}, ATTR_NULL, defaultfg, defaultbg};
-	char buf[20];
+	char buf[60];
 	int buflen;
 
 	xtermclear(0, focused_term->row, focused_term->col, focused_term->row);
 
 	for (term = terms; term; term = term->next) {
 		i++;
-		//if (term->title) {
-		//  snprintf(buf, sizeof(buf), "[%d] %s", i, term->title);
-		//} else
 		if (term == focused_term) {
-			snprintf(buf, sizeof(buf), "[%d]", i);
+			if (term->title) {
+				snprintf(buf, sizeof(buf), "[%d] %s", i, term->title);
+			} else {
+				snprintf(buf, sizeof(buf), "[%d]", i);
+			}
 			attr.mode = ATTR_NULL;
 			attr.fg = 15;
 			attr.bg = defaultbg;
 		} else {
-			//if (term->has_activity) {
-			//	term->has_activity = false;
-			//	snprintf(buf, sizeof(buf), " %d*", i);
-			//} else
-			snprintf(buf, sizeof(buf), " %d ", i);
+			if (term->title) {
+				snprintf(buf, sizeof(buf), " %d%s %s", i, term->has_activity ? "*" : "", term->title);
+			} else {
+				snprintf(buf, sizeof(buf), " %d%s ", i, term->has_activity ? "*" : "");
+			}
 			attr.mode = ATTR_NULL;
 			attr.fg = 6;
 			attr.bg = defaultbg;
@@ -3492,19 +3499,21 @@ xdrawbar(void) {
 		drawn += buflen;
 	}
 
-	if (tstate == S_SEARCH) {
+	if (tstate == S_SEARCH || tstate == S_RENAME) {
 		attr.mode = ATTR_NULL;
 		attr.fg = defaultfg;
 		attr.bg = defaultbg;
 		drawn += 1;
-		if (drawn + 8 + search.pos > focused_term->col) {
+		if (drawn + 8 + entry.pos > focused_term->col) {
 			return;
 		}
 		char final[68];
-		snprintf(final, sizeof(final), "Search: %s", search.text);
-		xdraws(final, attr, drawn, focused_term->row, 8 + search.pos, 8 + search.pos);
-		drawn += 8 + search.pos;
-		//tmoveto(focused_term, drawn + 8 + search.pos, focused_term->row);
+		snprintf(final, sizeof(final), tstate == S_SEARCH ? "Search: %s" : "Rename: %s", entry.text);
+		xdraws(final, attr, drawn, focused_term->row, 8 + entry.pos, 8 + entry.pos);
+		drawn += 8 + entry.pos;
+		attr.bg = defaultfg;
+		xdraws(" ", attr, drawn, focused_term->row, 1, 1);
+		drawn += 1;
 	}
 
 	if (status_msg) {
@@ -3679,6 +3688,41 @@ kpress(XEvent *ev) {
 		: scrollback_get(term, -((i) + 1)))
 
 	/* 0. prefix - C-a */
+	if (tstate == S_RENAME) {
+		Term *term = focused_term;
+		if (ksym == XK_Escape) {
+			tstate = S_NORMAL;
+			xdrawbar();
+			return;
+		}
+		if (ksym == XK_Return) {
+			tstate = S_NORMAL;
+			if (entry.pos == 0) {
+				xdrawbar();
+				return;
+			}
+			entry.text[entry.pos] = '\0';
+			term->title = strdup(entry.text);
+			xdrawbar();
+			return;
+		}
+		if (ksym == XK_BackSpace) {
+			if (entry.pos == 0) return;
+			entry.text[--entry.pos] = '\0';
+			xdrawbar();
+			return;
+		}
+		if (len == 1) {
+			if (entry.pos < sizeof(entry.text) - 1) {
+				entry.text[entry.pos++] = xstr[0];
+				entry.text[entry.pos] = '\0';
+				xdrawbar();
+			}
+			return;
+		}
+		return;
+	}
+
 	if (tstate == S_SEARCH || (tstate >= S_SELECT && (ksym == XK_n || ksym == XK_N))) {
 		Term *term = focused_term;
 		if (ksym == XK_Escape) {
@@ -3689,10 +3733,12 @@ kpress(XEvent *ev) {
 		if (ksym == XK_Return || tstate != S_SEARCH) {
 			tstate = S_SELECT;
 
-			if (search.pos == 0) {
+			if (entry.pos == 0) {
 				redraw(0);
 				return;
 			}
+
+			entry.text[entry.pos] = '\0';
 
 			Glyph *line;
 			bool found = false;
@@ -3702,8 +3748,8 @@ kpress(XEvent *ev) {
 			int yb = term->ybase;
 			int i;
 			bool up = ksym == XK_N
-				? !search.up
-				: search.up;
+				? !entry.flag
+				: entry.flag;
 
 			// TODO: This is really slow with a lot of scrollback, need
 			// to use better data structures for scrollback storage.
@@ -3716,11 +3762,11 @@ kpress(XEvent *ev) {
 					: scrollback_get(term, -(y + yb + 1));
 
 				while (x < term->col) {
-					for (i = 0; i < search.pos; i++) {
+					for (i = 0; i < entry.pos; i++) {
 						if (x + i >= term->col || !line[x + i].c) break;
-						if (line[x + i].c[0] != search.text[i]) {
+						if (line[x + i].c[0] != entry.text[i]) {
 							break;
-						} else if (line[x + i].c[0] == search.text[i] && i == search.pos - 1) {
+						} else if (line[x + i].c[0] == entry.text[i] && i == entry.pos - 1) {
 							found = true;
 							break;
 						}
@@ -3778,13 +3824,15 @@ kpress(XEvent *ev) {
 			return;
 		}
 		if (ksym == XK_BackSpace) {
-			search.text[--search.pos] = '\0';
+			if (entry.pos == 0) return;
+			entry.text[--entry.pos] = '\0';
 			xdrawbar();
 			return;
 		}
 		if (len == 1) {
-			if (search.pos < 60) {
-				search.text[search.pos++] = xstr[0];
+			if (entry.pos < sizeof(entry.text) - 1) {
+				entry.text[entry.pos++] = xstr[0];
+				entry.text[entry.pos] = '\0';
 				xdrawbar();
 			}
 			return;
@@ -3808,9 +3856,9 @@ kpress(XEvent *ev) {
 			redraw(0);
 		} else if (ksym == XK_slash || ksym == XK_question) {
 			tstate = S_SEARCH;
-			search.up = ksym == XK_question;
-			search.text[0] = '\0';
-			search.pos = 0;
+			entry.flag = ksym == XK_question;
+			entry.text[0] = '\0';
+			entry.pos = 0;
 			xdrawbar();
 		} else if (ksym == XK_h) {
 			tmoveto(term, term->c.x - 1, term->c.y);
@@ -4080,6 +4128,13 @@ kpress(XEvent *ev) {
 			UPDATE_SCROLL;
 			return;
 		}
+		if (ksym == XK_n) {
+			tstate = S_RENAME;
+			entry.text[0] = '\0';
+			entry.pos = 0;
+			xdrawbar();
+			return;
+		}
 		if (ksym == XK_p) {
 			selpaste(NULL);
 		} else if (ksym == XK_c) {
@@ -4277,7 +4332,9 @@ term_remove(Term *target) {
 
 void
 term_focus(Term *target) {
+	focused_term->has_activity = false;
 	focused_term = target == NULL ? terms : target;
+	focused_term->has_activity = false;
 	redraw(0);
 }
 
