@@ -2,6 +2,10 @@ st - simple terminal
 --------------------
 st is a simple virtual terminal emulator for X which sucks less.
 
+chjj's fork
+-----------
+My fork includes features like tmux-like tabs, select/visual/search mode, and
+scrollback.
 
 Requirements
 ------------
