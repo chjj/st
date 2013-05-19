@@ -465,14 +465,17 @@ static DC dc;
 static XWindow xw;
 static Term *terms;
 static Term *focused_term;
-static bool prefix_active = false;
-static bool select_mode = false;
-static bool visual_mode = false;
-//static bool cursor_was_hidden = false;
+enum tstate_t {
+	S_NORMAL,
+	S_PREFIX,
+	S_SELECT,
+	S_VISUAL,
+	S_SEARCH
+};
+static enum tstate_t tstate = S_NORMAL;
 static struct { int x; int y; bool hidden; int ybase; } normal_cursor;
 static char *status_msg = NULL;
 static struct timeval status_time;
-static bool search_mode = false;
 static struct { bool up; char text[60]; int pos; } search;
 static CSIEscape csiescseq;
 static STREscape strescseq;
@@ -1318,7 +1321,7 @@ ttyread(Term *term) {
 	}
 
 	/* ignore screen output while selecting */
-	if (select_mode) return;
+	if (tstate != S_NORMAL) return;
 	// TODO: Potentially buffer data here:
 	// if (...) xrealloc(select_buf, (select_buf_size *= 2));
 
@@ -3368,8 +3371,8 @@ xdrawcursor(void) {
 	// screen even if the ybase is a little bit negative.
 	// Also have to draw cursor on the right line in this
 	// situation, which makes things complicated.
-	// if (focused_term->ybase + (focused_term->row - focused_term->c.y) < 0 && !select_mode) {
-	if (focused_term->ybase < 0 && !select_mode) {
+	// if (focused_term->ybase + (focused_term->row - focused_term->c.y) < 0 && tstate == S_NORMAL) {
+	if (focused_term->ybase < 0 && tstate == S_NORMAL) {
 		return;
 	}
 
@@ -3514,6 +3517,8 @@ xdrawbar(void) {
 	char buf[20];
 	int buflen;
 
+	xtermclear(0, focused_term->row, focused_term->col, focused_term->row);
+
 	for (term = terms; term; term = term->next) {
 		i++;
 		//if (term->title) {
@@ -3543,7 +3548,7 @@ xdrawbar(void) {
 		drawn += buflen;
 	}
 
-	if (search_mode) {
+	if (tstate == S_SEARCH) {
 		attr.mode = ATTR_NULL;
 		attr.fg = defaultfg;
 		attr.bg = defaultbg;
@@ -3555,7 +3560,7 @@ xdrawbar(void) {
 		snprintf(final, 68, "Search: %s", search.text);
 		xdraws(final, attr, drawn, focused_term->row, 8 + search.pos, 8 + search.pos);
 		drawn += 8 + search.pos;
-		//tmoveto(focused_term, drawn + 8 + search.pos, focused_term->row + 1);
+		//tmoveto(focused_term, drawn + 8 + search.pos, focused_term->row);
 	}
 
 	if (status_msg) {
@@ -3724,18 +3729,18 @@ kpress(XEvent *ev) {
 #define UPDATE_SCROLL \
 	set_message("%d%%", \
 		(-term->ybase * 100) \
-		/ (term->sb->total + term->row))
+		/ (term->sb->total + term->row)), xdrawbar()
 
 	/* 0. prefix - C-a */
-	if (search_mode || (select_mode && (ksym == XK_n || ksym == XK_N))) {
+	if (tstate == S_SEARCH || (tstate >= S_SELECT && (ksym == XK_n || ksym == XK_N))) {
 		Term *term = focused_term;
 		if (ksym == XK_Escape) {
-			search_mode = false;
+			tstate = S_SELECT;
 			redraw(0);
 			return;
 		}
-		if (ksym == XK_Return || !search_mode) {
-			search_mode = false;
+		if (ksym == XK_Return || tstate != S_SEARCH) {
+			tstate = S_SELECT;
 
 			if (search.pos == 0) {
 				redraw(0);
@@ -3784,6 +3789,7 @@ kpress(XEvent *ev) {
 							yb++;
 						} else {
 							if (wrapped) break;
+							set_message("Search wrapped.");
 							wrapped = true;
 							y = 0;
 							yb = -term->sb->total;
@@ -3798,6 +3804,7 @@ kpress(XEvent *ev) {
 							yb--;
 						} else {
 							if (wrapped) break;
+							set_message("Search wrapped.");
 							wrapped = true;
 							y = term->row - 1;
 							yb = 0;
@@ -3809,8 +3816,8 @@ kpress(XEvent *ev) {
 			if (found) {
 				tscrollback(term, -term->ybase + yb);
 				tmoveto(term, x, y);
-				if (visual_mode) SEND_MOUSE(bmotion);
-				UPDATE_SCROLL;
+				if (tstate == S_VISUAL) SEND_MOUSE(bmotion);
+				/*UPDATE_SCROLL;*/
 			}
 
 			redraw(0);
@@ -3831,46 +3838,36 @@ kpress(XEvent *ev) {
 		return;
 	}
 
-	if (select_mode) {
+	if (tstate >= S_SELECT) {
 		Term *term = focused_term;
 		if (ksym == XK_q) {
-			if (visual_mode) {
+			if (tstate == S_VISUAL) {
 				SEND_MOUSE(brelease);
 				SEND_MOUSE(bpress);
-				// Not necessary (?):
 				SEND_MOUSE(brelease);
-				visual_mode = false;
 			}
-			select_mode = false;
+			tstate = S_NORMAL;
 			set_message(NULL);
-			//tcursor(term, CURSOR_LOAD);
-			//if (cursor_was_hidden) term->mode |= MODE_HIDE;
-
 			tscrollback(term, normal_cursor.ybase - term->ybase);
-			//tscrollback(term, -term->ybase);
-
-			//term->ybase = normal_cursor.ybase;
-
 			tmoveto(term, normal_cursor.x, normal_cursor.y);
 			if (normal_cursor.hidden) term->mode |= MODE_HIDE;
 			redraw(0);
 		} else if (ksym == XK_slash || ksym == XK_question) {
-			search_mode = true;
+			tstate = S_SEARCH;
 			search.up = ksym == XK_question;
 			search.text[0] = '\0';
 			search.pos = 0;
 			xdrawbar();
-			//redraw(0);
 		} else if (ksym == XK_h) {
 			tmoveto(term, term->c.x - 1, term->c.y);
-			if (visual_mode) SEND_MOUSE(bmotion);
+			if (tstate == S_VISUAL) SEND_MOUSE(bmotion);
 		} else if (ksym == XK_j) {
 			if (term->c.y == term->row - 1) {
 				tscrollback(term, 1);
 			} else {
 				tmoveto(term, term->c.x, term->c.y + 1);
 			}
-			if (visual_mode) SEND_MOUSE(bmotion);
+			if (tstate == S_VISUAL) SEND_MOUSE(bmotion);
 			UPDATE_SCROLL;
 		} else if (ksym == XK_k) {
 			if (term->c.y == 0) {
@@ -3878,11 +3875,11 @@ kpress(XEvent *ev) {
 			} else {
 				tmoveto(term, term->c.x, term->c.y - 1);
 			}
-			if (visual_mode) SEND_MOUSE(bmotion);
+			if (tstate == S_VISUAL) SEND_MOUSE(bmotion);
 			UPDATE_SCROLL;
 		} else if (ksym == XK_l) {
 			tmoveto(term, term->c.x + 1, term->c.y);
-			if (visual_mode) SEND_MOUSE(bmotion);
+			if (tstate == S_VISUAL) SEND_MOUSE(bmotion);
 		} else if (ksym == XK_H || ksym == XK_M || ksym == XK_L) {
 			if (ksym == XK_H) {
 				tmoveto(term, 0, 0);
@@ -3891,7 +3888,7 @@ kpress(XEvent *ev) {
 			} else if (ksym == XK_L) {
 				tmoveto(term, 0, term->row - 1);
 			}
-			if (visual_mode) SEND_MOUSE(bmotion);
+			if (tstate == S_VISUAL) SEND_MOUSE(bmotion);
 			UPDATE_SCROLL;
 		} else if (ksym == XK_0 || ksym == XK_asciicircum) {
 			if (ksym == XK_0) {
@@ -3907,7 +3904,7 @@ kpress(XEvent *ev) {
 				}
 				tmoveto(term, cx, term->c.y);
 			}
-			if (visual_mode) SEND_MOUSE(bmotion);
+			if (tstate == S_VISUAL) SEND_MOUSE(bmotion);
 		} else if (ksym == XK_w || ksym == XK_W) {
 			int cx = term->c.x;
 			// TODO: Make a get_real_line() function, which checks scrollback.
@@ -3923,7 +3920,7 @@ kpress(XEvent *ev) {
 				cx++;
 			}
 			tmoveto(term, cx, term->c.y);
-			if (visual_mode) SEND_MOUSE(bmotion);
+			if (tstate == S_VISUAL) SEND_MOUSE(bmotion);
 		} else if (ksym == XK_e || ksym == XK_E) {
 			int cx = term->c.x + 1;
 			if (cx >= term->col) return;
@@ -3945,7 +3942,7 @@ kpress(XEvent *ev) {
 				cx++;
 			}
 			tmoveto(term, cx, term->c.y);
-			if (visual_mode) SEND_MOUSE(bmotion);
+			if (tstate == S_VISUAL) SEND_MOUSE(bmotion);
 		} else if (ksym == XK_b || ksym == XK_B) {
 			int cx = term->c.x;
 			Glyph *l = term->line[term->c.y];
@@ -3962,26 +3959,31 @@ kpress(XEvent *ev) {
 				cx--;
 			}
 			tmoveto(term, cx, term->c.y);
-			if (visual_mode) SEND_MOUSE(bmotion);
+			if (tstate == S_VISUAL) SEND_MOUSE(bmotion);
 		} else if (ksym == XK_dollar) {
 			tmoveto(term, term->col - 1, term->c.y);
-			if (visual_mode) SEND_MOUSE(bmotion);
-		} else if (ksym == XK_braceleft) {
-			if (term->c.y == 0) {
-				tscrollback(term, -(term->row / 5));
-			} else {
-				tmoveto(term, term->c.x, term->c.y - term->row / 5);
-			}
-			if (visual_mode) SEND_MOUSE(bmotion);
-			UPDATE_SCROLL;
-
-#if 0
-			int y = term->c.y - 1;
-			if (y < 0) return;
+			if (tstate == S_VISUAL) SEND_MOUSE(bmotion);
+		} else if (ksym == XK_braceleft || ksym == XK_braceright) {
+			Glyph *line;
+			bool saw_full = false;
+			bool found = false;
+			int first_is_space = -1;
+			int y = term->c.y + (ksym == XK_braceleft ? -1 : 1);
 			int yb = term->ybase;
 			int i;
-			Glyph *line;
-			bool found = false;
+
+			if (ksym == XK_braceleft) {
+				if (y < 0) {
+					y++;
+					if (yb > -term->sb->total) yb--;
+				}
+			} else if (ksym == XK_braceright) {
+				if (y >= term->row) {
+					y--;
+					if (yb < 0) yb++;
+				}
+			}
+
 			for (;;) {
 				line = y + yb >= 0
 					? (yb == 0 ? term->line[y + yb] : term->last_line[y + yb])
@@ -3989,76 +3991,85 @@ kpress(XEvent *ev) {
 
 				for (i = 0; i < term->col; i++) {
 					if (line[i].c && line[i].c[0] > ' ') {
+						if (first_is_space == -1) {
+							first_is_space = 0;
+						}
+						saw_full = true;
 						break;
 					} else if (i == term->col - 1) {
-						found = true;
+						if (first_is_space == -1) {
+							first_is_space = 1;
+						} else if (first_is_space == 0) {
+							found = true;
+						} else if (first_is_space == 1) {
+							if (saw_full) found = true;
+						}
 						break;
 					}
 				}
 
 				if (found) break;
 
-				y--;
-				if (y < 0) {
+				if (ksym == XK_braceleft) {
+					y--;
+					if (y < 0) {
+						y++;
+						if (yb > -term->sb->total) yb--;
+						else break;
+					}
+				} else if (ksym == XK_braceright) {
 					y++;
-					if (yb > -term->sb->total) yb--;
-					else break;
+					if (y >= term->row) {
+						y--;
+						if (yb < 0) yb++;
+						else break;
+					}
 				}
 			}
 
-			if (found) {
-				tscrollback(term, -term->ybase + yb);
-				tmoveto(term, 0, y);
-				if (visual_mode) SEND_MOUSE(bmotion);
-				UPDATE_SCROLL;
+			if (!found) {
+				if (ksym == XK_braceleft) {
+					y = 0;
+					yb = -term->sb->total;
+				} else if (ksym == XK_braceright) {
+					y = term->row - 1;
+					yb = 0;
+				}
 			}
-#endif
-		} else if (ksym == XK_braceright) {
-			if (term->c.y == term->row - 1) {
-				tscrollback(term, term->row / 5);
-			} else {
-				tmoveto(term, term->c.x, term->c.y + term->row / 5);
-			}
-			if (visual_mode) SEND_MOUSE(bmotion);
+
+			tscrollback(term, -term->ybase + yb);
+			tmoveto(term, 0, y);
+			if (tstate == S_VISUAL) SEND_MOUSE(bmotion);
 			UPDATE_SCROLL;
 		} else if (ksym == XK_u && match(ControlMask, e->state)) {
 			tscrollback(term, -(term->row / 2));
-			if (visual_mode) SEND_MOUSE(bmotion);
+			if (tstate == S_VISUAL) SEND_MOUSE(bmotion);
 			UPDATE_SCROLL;
 		} else if (ksym == XK_d && match(ControlMask, e->state)) {
 			tscrollback(term, term->row / 2);
-			if (visual_mode) SEND_MOUSE(bmotion);
+			if (tstate == S_VISUAL) SEND_MOUSE(bmotion);
 			UPDATE_SCROLL;
 		} else if (ksym == XK_b && match(ControlMask, e->state)) {
 			tscrollback(term, -term->row);
-			if (visual_mode) SEND_MOUSE(bmotion);
+			if (tstate == S_VISUAL) SEND_MOUSE(bmotion);
 			UPDATE_SCROLL;
 		} else if (ksym == XK_f && match(ControlMask, e->state)) {
 			tscrollback(term, term->row);
-			if (visual_mode) SEND_MOUSE(bmotion);
+			if (tstate == S_VISUAL) SEND_MOUSE(bmotion);
 			UPDATE_SCROLL;
 		} else if (ksym == XK_v) {
-			if (!visual_mode) {
-				visual_mode = true;
+			if (tstate != S_VISUAL) {
+				tstate = S_VISUAL;
 				SEND_MOUSE(bpress);
 			}
 		} else if (ksym == XK_y) {
-			if (visual_mode) {
+			if (tstate == S_VISUAL) {
 				SEND_MOUSE(brelease);
 				SEND_MOUSE(bpress);
-				// Not necessary (?):
 				SEND_MOUSE(brelease);
-				visual_mode = false;
-				select_mode = false;
+				tstate = S_NORMAL;
 				set_message(NULL);
-				//tcursor(term, CURSOR_LOAD);
-				//if (cursor_was_hidden) term->mode |= MODE_HIDE;
-
 				tscrollback(term, normal_cursor.ybase - term->ybase);
-				//tscrollback(term, -term->ybase);
-
-				//term->ybase = normal_cursor.ybase;
-
 				tmoveto(term, normal_cursor.x, normal_cursor.y);
 				if (normal_cursor.hidden) term->mode |= MODE_HIDE;
 				redraw(0);
@@ -4068,28 +4079,26 @@ kpress(XEvent *ev) {
 	}
 
 	if (ksym == XK_a && match(ControlMask, e->state)) {
-		if (!prefix_active) {
-			prefix_active = true;
+		if (tstate == S_NORMAL) {
+			tstate = S_PREFIX;
 			return;
 		}
 	}
-	if (prefix_active) {
+
+	if (tstate == S_PREFIX) {
 		Term *term = focused_term;
 		if (ksym == XK_bracketleft) {
-			select_mode = true;
-
-			//tcursor(term, CURSOR_SAVE);
-			//cursor_was_hidden = term->mode & MODE_HIDE;
-			//term->mode &= ~MODE_HIDE;
+			tstate = S_SELECT;
 			normal_cursor.x = term->c.x;
 			normal_cursor.y = term->c.y;
 			normal_cursor.hidden = term->mode & MODE_HIDE;
 			normal_cursor.ybase = term->ybase;
 			term->mode &= ~MODE_HIDE;
-
 			tmoveto(term, 0, term->row - 1);
 			UPDATE_SCROLL;
-		} else if (ksym == XK_p) {
+			return;
+		}
+		if (ksym == XK_p) {
 			selpaste(NULL);
 		} else if (ksym == XK_c) {
 			term_add();
@@ -4102,7 +4111,7 @@ kpress(XEvent *ev) {
 		} else if (ksym == XK_n) {
 			term_focus_next(term);
 		}
-		prefix_active = false;
+		tstate = S_NORMAL;
 		return;
 	}
 #undef SEND_MOUSE
