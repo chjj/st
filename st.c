@@ -4321,22 +4321,22 @@ run(void) {
 	gettimeofday(&last, NULL);
 
 	for(xev = actionfps;;) {
-		FD_ZERO(&rfd);
 		Term *term, *next;
+		int lastfd = 0;
+
+		FD_ZERO(&rfd);
 		for (term = terms; term; term = term->next) {
 			FD_SET(term->cmdfd, &rfd);
+			lastfd = MAX(term->cmdfd, lastfd);
 		}
 		FD_SET(xfd, &rfd);
 
-		int lastfd = 0;
-		for (term = terms; term; term = term->next) {
-			lastfd = MAX(term->cmdfd, lastfd);
-		}
 		if(select(MAX(xfd, lastfd)+1, &rfd, NULL, NULL, tv) < 0) {
 			if(errno == EINTR)
 				continue;
 			die("select failed: %s\n", SERRNO);
 		}
+
 		for (term = terms; term; term = next) {
 			next = term->next;
 			if(FD_ISSET(term->cmdfd, &rfd)) {
