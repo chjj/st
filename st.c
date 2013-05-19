@@ -427,9 +427,9 @@ static void selcopy(void);
 static void selscroll(Term *, int, int);
 static void selsnap(int, int *, int *, int);
 
-ScrollbackList *scrollback_create(void);
-Glyph *scrollback_get(Term *, int);
-void scrollback_add(Term *, Glyph *);
+static ScrollbackList *scrollback_create(void);
+static Glyph *scrollback_get(Term *, int);
+static void scrollback_add(Term *, int);
 
 static int utf8decode(char *, long *);
 static int utf8encode(long *, char *);
@@ -1459,6 +1459,12 @@ int
 set_message(char *fmt, ...) {
 	int ret;
 
+	if (fmt == NULL) {
+		if (status_msg) free(status_msg);
+		status_msg = NULL;
+		return 0;
+	}
+
 	char *text = (char *)xmalloc(100 * sizeof(char));
 	memset(text, 0, 100 * sizeof(char));
 
@@ -1564,12 +1570,14 @@ scrollback_get(Term *term, int i) {
 }
 
 void
-scrollback_add(Term *term, Glyph *l) {
+scrollback_add(Term *term, int i) {
 	Scrollback *sb = (Scrollback *)xmalloc(sizeof(Scrollback));
-	sb->line = l;
 	sb->next = NULL;
 	sb->prev = NULL;
 	sb->col = term->col;
+
+	sb->line = xmalloc(term->col * sizeof(Glyph));
+	memcpy(sb->line, term->line[i], term->col * sizeof(Glyph));
 
 	Scrollback *h = term->sb->head;
 	term->sb->head = sb;
@@ -1582,16 +1590,23 @@ scrollback_add(Term *term, Glyph *l) {
 		h->prev = sb;
 	}
 
-	// TODO: Halve the scrollback instead, similar to tty.js.
+	// Halve the saved scrollback when we hit the limit.
+	// We could do this one at a time, but doing half
+	// at a time gets it all done at once, which ensures
+	// there is no persistent performance hit.
 	if (++term->sb->total > SCROLLBACK) {
-		// int h = SCROLLBACK / 2;
-		// while (h--) {
-		term->sb->total--;
-		Scrollback *t = term->sb->tail;
-		term->sb->tail = t->prev;
-		t->prev->next = NULL;
-		free(t->line);
-		free(t);
+#ifndef NO_HALVE_SCROLLBACK
+		while (term->sb->total > (SCROLLBACK / 2)) {
+#endif
+			term->sb->total--;
+			Scrollback *t = term->sb->tail;
+			term->sb->tail = t->prev;
+			t->prev->next = NULL;
+			free(t->line);
+			free(t);
+#ifndef NO_HALVE_SCROLLBACK
+		}
+#endif
 	}
 }
 
@@ -1603,9 +1618,7 @@ tscrollup(Term *term, int orig, int n) {
 
 	if (orig == term->top && term->ybase == 0) {
 		for(i = orig; i <= orig + n - 1; i++) {
-			Glyph *l = xmalloc(term->col * sizeof(Glyph));
-			memcpy(l, term->line[i], term->col * sizeof(Glyph));
-			scrollback_add(term, l);
+			scrollback_add(term, i);
 		}
 	}
 
@@ -3349,13 +3362,16 @@ xdrawcursor(void) {
 	LIMIT(oldx, 0, focused_term->col-1);
 	LIMIT(oldy, 0, focused_term->row-1);
 
-	// TODO: Use better check to tell whether cursor is one screen even if the
-	// ybase is a little bit negative.
-	if (focused_term->ybase == 0 || select_mode) {
-		memcpy(g.c, focused_term->line[focused_term->c.y][focused_term->c.x].c, UTF_SIZ);
-	} else {
+	// TODO: Use better check to tell whether cursor is one
+	// screen even if the ybase is a little bit negative.
+	// Also have to draw cursor on the right line in this
+	// situation, which makes things complicated.
+	// if (focused_term->ybase + (focused_term->row - focused_term->c.y) < 0 && !select_mode) {
+	if (focused_term->ybase < 0 && !select_mode) {
 		return;
 	}
+
+	memcpy(g.c, focused_term->line[focused_term->c.y][focused_term->c.x].c, UTF_SIZ);
 
 	/* remove the old cursor */
 	sl = utf8size(focused_term->line[oldy][oldx].c);
@@ -3702,6 +3718,11 @@ kpress(XEvent *ev) {
 	brelease(&ev); \
 } while (0)
 
+#define UPDATE_SCROLL \
+	set_message("%d%%", \
+		(-term->ybase * 100) \
+		/ (term->sb->total + term->row))
+
 	/* 0. prefix - C-a */
 	if (select_mode) {
 		Term *term = focused_term;
@@ -3714,6 +3735,7 @@ kpress(XEvent *ev) {
 				visual_mode = false;
 			}
 			select_mode = false;
+			set_message(NULL);
 			//tcursor(term, CURSOR_LOAD);
 			//if (cursor_was_hidden) term->mode |= MODE_HIDE;
 
@@ -3783,6 +3805,7 @@ kpress(XEvent *ev) {
 				tmoveto(term, term->c.x, term->c.y + 1);
 			}
 			if (visual_mode) CREATE_BMOTION;
+			UPDATE_SCROLL;
 		} else if (ksym == XK_k) {
 			if (term->c.y == 0) {
 				tscrollback(term, -1);
@@ -3790,6 +3813,7 @@ kpress(XEvent *ev) {
 				tmoveto(term, term->c.x, term->c.y - 1);
 			}
 			if (visual_mode) CREATE_BMOTION;
+			UPDATE_SCROLL;
 		} else if (ksym == XK_l) {
 			tmoveto(term, term->c.x + 1, term->c.y);
 			if (visual_mode) CREATE_BMOTION;
@@ -3802,6 +3826,7 @@ kpress(XEvent *ev) {
 				tmoveto(term, 0, term->row - 1);
 			}
 			if (visual_mode) CREATE_BMOTION;
+			UPDATE_SCROLL;
 		} else if (ksym == XK_0 || ksym == XK_asciicircum) {
 			if (ksym == XK_0) {
 				tmoveto(term, 0, term->c.y);
@@ -3821,8 +3846,6 @@ kpress(XEvent *ev) {
 			int cx = term->c.x;
 			// TODO: Make a get_real_line() function, which checks scrollback.
 			// TODO: Handle scrollback when the alternate buffer is active.
-			// TODO: NOTE: selsnap and other functions may need to be updated to
-			// use ybase in line[].
 			Glyph *l = term->line[term->c.y];
 			bool saw_space = false;
 			while (cx < term->col) {
@@ -3884,6 +3907,7 @@ kpress(XEvent *ev) {
 				tmoveto(term, term->c.x, term->c.y - term->row / 5);
 			}
 			if (visual_mode) CREATE_BMOTION;
+			UPDATE_SCROLL;
 
 #if 0
 			int y = term->c.y - 1;
@@ -3921,6 +3945,7 @@ kpress(XEvent *ev) {
 				tscrollback(term, -term->ybase + yb);
 				tmoveto(term, 0, y);
 				if (visual_mode) CREATE_BMOTION;
+				UPDATE_SCROLL;
 			}
 #endif
 		} else if (ksym == XK_braceright) {
@@ -3930,18 +3955,23 @@ kpress(XEvent *ev) {
 				tmoveto(term, term->c.x, term->c.y + term->row / 5);
 			}
 			if (visual_mode) CREATE_BMOTION;
+			UPDATE_SCROLL;
 		} else if (ksym == XK_u && match(ControlMask, e->state)) {
 			tscrollback(term, -(term->row / 2));
 			if (visual_mode) CREATE_BMOTION;
+			UPDATE_SCROLL;
 		} else if (ksym == XK_d && match(ControlMask, e->state)) {
 			tscrollback(term, term->row / 2);
 			if (visual_mode) CREATE_BMOTION;
+			UPDATE_SCROLL;
 		} else if (ksym == XK_b && match(ControlMask, e->state)) {
 			tscrollback(term, -term->row);
 			if (visual_mode) CREATE_BMOTION;
+			UPDATE_SCROLL;
 		} else if (ksym == XK_f && match(ControlMask, e->state)) {
 			tscrollback(term, term->row);
 			if (visual_mode) CREATE_BMOTION;
+			UPDATE_SCROLL;
 		} else if (ksym == XK_v) {
 			if (!visual_mode) {
 				visual_mode = true;
@@ -3955,6 +3985,7 @@ kpress(XEvent *ev) {
 				CREATE_BRELEASE;
 				visual_mode = false;
 				select_mode = false;
+				set_message(NULL);
 				//tcursor(term, CURSOR_LOAD);
 				//if (cursor_was_hidden) term->mode |= MODE_HIDE;
 
@@ -3974,6 +4005,7 @@ kpress(XEvent *ev) {
 #undef CREATE_BPRESS
 #undef CREATE_BMOTION
 #undef CREATE_BRELEASE
+#undef UPDATE_SCROLL
 
 	if (ksym == XK_a && match(ControlMask, e->state)) {
 		if (!prefix_active) {
