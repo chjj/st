@@ -76,8 +76,6 @@ char *argv0;
 #define IS_SET(t, flag) (((t)->mode & (flag)) != 0)
 #define TIMEDIFF(t1, t2) ((t1.tv_sec-t2.tv_sec)*1000 + (t1.tv_usec-t2.tv_usec)/1000)
 
-#define SCROLLBACK 10000
-
 #define VT102ID "\033[?6c"
 
 enum glyph_attribute {
@@ -1303,7 +1301,9 @@ ttyread(Term *term) {
 	// if (...) xrealloc(select_buf, (select_buf_size *= 2));
 
 	/* mark activity */
-	term->has_activity = true;
+	if (showactivity) {
+		term->has_activity = true;
+	}
 
 	/* scroll down if we receive bytes while examining scrollback */
 	if (term->ybase < 0) {
@@ -1538,7 +1538,7 @@ scrollback_get(Term *term, int i) {
 	i = term->sb_pos - 1 - i;
 	if (i < 0) {
 		i = term->sb_total + i;
-		if (i < term->sb_pos || term->sb_total != SCROLLBACK) {
+		if (i < term->sb_pos || term->sb_total != scrollback) {
 			die("bad scrollback!\n");
 		}
 	}
@@ -1547,13 +1547,13 @@ scrollback_get(Term *term, int i) {
 
 void
 scrollback_add(Term *term, int i) {
-	if (term->sb_pos == SCROLLBACK) {
+	if (term->sb_pos == scrollback) {
 		term->sb_pos = 0;
 	}
 	term->sb[term->sb_pos] = (Glyph *)xmalloc(term->col * sizeof(Glyph));
 	memcpy(term->sb[term->sb_pos], term->line[i], term->col * sizeof(Glyph));
 	term->sb_pos++;
-	if (term->sb_total != SCROLLBACK) {
+	if (term->sb_total != scrollback) {
 		term->sb_total++;
 	}
 }
@@ -2641,11 +2641,11 @@ tresize(Term *term, int col, int row) {
 
 	/* resize the scrollback */
 	if (!term->sb) {
-		term->sb = xmalloc(SCROLLBACK * sizeof(Line));
-		memset(term->sb, 0, SCROLLBACK * sizeof(Line));
+		term->sb = xmalloc(scrollback * sizeof(Line));
+		memset(term->sb, 0, scrollback * sizeof(Line));
 	}
 	// if (term->col != col) {
-	for(i = 0; i < SCROLLBACK; i++) {
+	for(i = 0; i < scrollback; i++) {
 		term->sb[i] = xrealloc(term->sb[i], col * sizeof(Glyph));
 	}
 
@@ -3457,8 +3457,9 @@ drawregion(int x1, int y1, int x2, int y2) {
 
 void
 xdrawbar(void) {
-	// for autohide
-	if (!terms->next) return;
+	if (autohide) {
+		if (!terms->next) return;
+	}
 
 	int i = 0;
 	int drawn = 0;
@@ -4230,8 +4231,7 @@ cresize(int width, int height) {
 	col = (xw.w - 2 * borderpx) / xw.cw;
 	row = (xw.h - 2 * borderpx) / xw.ch;
 
-	if (terms->next) { // <- for autohide
-		//row = MAX(row - 1, 0);
+	if (!autohide || terms->next) {
 		if (--row < 0) row = 0;
 	}
 
@@ -4275,10 +4275,11 @@ term_add(void) {
 
 	ttynew(focused_term);
 
-	// for autohide
-	// just got two tabs
-	if (terms->next && !terms->next->next) {
-		cresize(0, 0);
+	if (autohide) {
+		// Another tab was created.
+		if (terms->next && !terms->next->next) {
+			cresize(0, 0);
+		}
 	}
 
 	redraw(0);
@@ -4309,7 +4310,7 @@ term_remove(Term *target) {
 		free(target->last_line[i]);
 	}
 
-	for (i = 0; i < SCROLLBACK; i++) {
+	for (i = 0; i < scrollback; i++) {
 		free(target->sb[i]);
 	}
 
@@ -4321,10 +4322,11 @@ term_remove(Term *target) {
 	free(target->tabs);
 	free(target);
 
-	// for autohide
-	// just fell back to one tab
-	if (!terms->next) {
-		cresize(0, 0);
+	if (autohide) {
+		// Fell back to one tab.
+		if (!terms->next) {
+			cresize(0, 0);
+		}
 	}
 
 	redraw(0);

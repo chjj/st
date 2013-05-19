@@ -25,6 +25,15 @@ static char worddelimiters[] = " ";
 static unsigned int doubleclicktimeout = 300;
 static unsigned int tripleclicktimeout = 600;
 
+/* scrollback */
+static int scrollback = 10000;
+
+/* activity markers */
+static bool showactivity = true;
+
+/* autohide statusbar */
+static bool autohide = true;
+
 /* alt screens */
 static bool allowaltscreen = true;
 
