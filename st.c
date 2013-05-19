@@ -708,20 +708,6 @@ y2row(Term *term, int y) {
 	return LIMIT(y, 0, term->row-1);
 }
 
-static int
-col2x(Term *term, int x) {
-	x *= xw.cw;
-	x += borderpx;
-	return x;
-}
-
-static int
-row2y(Term *term, int y) {
-	y *= xw.ch;
-	y += borderpx;
-	return y;
-}
-
 static inline bool
 selected(int x, int y) {
 	int bx, ex;
@@ -1565,6 +1551,7 @@ scrollback_create(void) {
 // TODO: Optimize using nerdier data structures.
 Glyph *
 scrollback_get(Term *term, int i) {
+	// if (i < 0) i = -(i + 1);
 	Scrollback *sb = term->sb->head;
 	for (int j = 0; j < i && sb; j++) sb = sb->next;
 	if (!sb) return NULL;
@@ -3522,19 +3509,19 @@ xdrawbar(void) {
 	for (term = terms; term; term = term->next) {
 		i++;
 		//if (term->title) {
-		//  snprintf(buf, 40, "[%d] %s", i, term->title);
+		//  snprintf(buf, sizeof(buf), "[%d] %s", i, term->title);
 		//} else
 		if (term == focused_term) {
-			snprintf(buf, 20, "[%d]", i);
+			snprintf(buf, sizeof(buf), "[%d]", i);
 			attr.mode = ATTR_NULL;
 			attr.fg = 15;
 			attr.bg = defaultbg;
 		} else {
 			//if (term->has_activity) {
 			//	term->has_activity = false;
-			//	snprintf(buf, 20, " %d*", i);
+			//	snprintf(buf, sizeof(buf), " %d*", i);
 			//} else
-			snprintf(buf, 20, " %d ", i);
+			snprintf(buf, sizeof(buf), " %d ", i);
 			attr.mode = ATTR_NULL;
 			attr.fg = 6;
 			attr.bg = defaultbg;
@@ -3557,7 +3544,7 @@ xdrawbar(void) {
 			return;
 		}
 		char final[68];
-		snprintf(final, 68, "Search: %s", search.text);
+		snprintf(final, sizeof(final), "Search: %s", search.text);
 		xdraws(final, attr, drawn, focused_term->row, 8 + search.pos, 8 + search.pos);
 		drawn += 8 + search.pos;
 		//tmoveto(focused_term, drawn + 8 + search.pos, focused_term->row);
@@ -3719,10 +3706,8 @@ kpress(XEvent *ev) {
 	XEvent ev; \
 	ev.xbutton.button = Button1; \
 	ev.xbutton.state |= Button1Mask; \
-	ev.xbutton.x = col2x(term, term->c.x); \
-	ev.xbutton.y = row2y(term, term->c.y); \
-	/*ev.xbutton.x = (term->c.x * xw.cw) + borderpx; \
-	ev.xbutton.y = (term->c.y * xw.ch) + borderpx;*/ \
+	ev.xbutton.x = (term->c.x * xw.cw) + borderpx; \
+	ev.xbutton.y = (term->c.y * xw.ch) + borderpx; \
 	(f)(&ev); \
 } while (0)
 
@@ -3730,6 +3715,11 @@ kpress(XEvent *ev) {
 	set_message("%d%%", \
 		(-term->ybase * 100) \
 		/ (term->sb->total + term->row)), xdrawbar()
+
+#define GET_LINE(t, i) \
+	((i) >= 0 \
+		? ((t)->ybase == 0 ? (t)->line[(i)] : (t)->last_line[(i)]) \
+		: scrollback_get(term, -((i) + 1)))
 
 	/* 0. prefix - C-a */
 	if (tstate == S_SEARCH || (tstate >= S_SELECT && (ksym == XK_n || ksym == XK_N))) {
@@ -3758,6 +3748,11 @@ kpress(XEvent *ev) {
 				? !search.up
 				: search.up;
 
+			// TODO: This is really slow with a lot of scrollback, need
+			// to use better data structures for scrollback storage.
+			// Possibly optimize by iterating through the linked list
+			// by hand, that way scrollback_get doesn't need to be
+			// called and iterate every time.
 			for (;;) {
 				line = y + yb >= 0
 					? (yb == 0 ? term->line[y + yb] : term->last_line[y + yb])
@@ -3789,7 +3784,7 @@ kpress(XEvent *ev) {
 							yb++;
 						} else {
 							if (wrapped) break;
-							set_message("Search wrapped.");
+							set_message("Search wrapped. Continuing at TOP.");
 							wrapped = true;
 							y = 0;
 							yb = -term->sb->total;
@@ -3804,7 +3799,7 @@ kpress(XEvent *ev) {
 							yb--;
 						} else {
 							if (wrapped) break;
-							set_message("Search wrapped.");
+							set_message("Search wrapped. Continuing at BOTTOM.");
 							wrapped = true;
 							y = term->row - 1;
 							yb = 0;
@@ -3817,7 +3812,9 @@ kpress(XEvent *ev) {
 				tscrollback(term, -term->ybase + yb);
 				tmoveto(term, x, y);
 				if (tstate == S_VISUAL) SEND_MOUSE(bmotion);
-				/*UPDATE_SCROLL;*/
+				if (!wrapped) UPDATE_SCROLL;
+			} else {
+				set_message("No matches found.");
 			}
 
 			redraw(0);
@@ -3825,14 +3822,14 @@ kpress(XEvent *ev) {
 		}
 		if (ksym == XK_BackSpace) {
 			search.text[--search.pos] = '\0';
-			redraw(0);
+			xdrawbar();
 			return;
 		}
 		if (len == 1) {
 			if (search.pos < 60) {
 				search.text[search.pos++] = xstr[0];
+				xdrawbar();
 			}
-			redraw(0);
 			return;
 		}
 		return;
@@ -3840,7 +3837,7 @@ kpress(XEvent *ev) {
 
 	if (tstate >= S_SELECT) {
 		Term *term = focused_term;
-		if (ksym == XK_q) {
+		if (ksym == XK_q || ksym == XK_Escape) {
 			if (tstate == S_VISUAL) {
 				SEND_MOUSE(brelease);
 				SEND_MOUSE(bpress);
@@ -3890,6 +3887,16 @@ kpress(XEvent *ev) {
 			}
 			if (tstate == S_VISUAL) SEND_MOUSE(bmotion);
 			UPDATE_SCROLL;
+		} else if (ksym == XK_g || ksym == XK_G) {
+			if (ksym == XK_g) {
+				tscrollback(term, -term->ybase + -term->sb->total);
+				tmoveto(term, 0, 0);
+			} else if (ksym == XK_G) {
+				tscrollback(term, -term->ybase + 0);
+				tmoveto(term, 0, term->row - 1);
+			}
+			if (tstate == S_VISUAL) SEND_MOUSE(bmotion);
+			UPDATE_SCROLL;
 		} else if (ksym == XK_0 || ksym == XK_asciicircum) {
 			if (ksym == XK_0) {
 				tmoveto(term, 0, term->c.y);
@@ -3902,6 +3909,7 @@ kpress(XEvent *ev) {
 					}
 					cx++;
 				}
+				if (cx >= term->col) cx = term->col - 1;
 				tmoveto(term, cx, term->c.y);
 			}
 			if (tstate == S_VISUAL) SEND_MOUSE(bmotion);
@@ -3919,6 +3927,7 @@ kpress(XEvent *ev) {
 				}
 				cx++;
 			}
+			if (cx >= term->col) cx = term->col - 1;
 			tmoveto(term, cx, term->c.y);
 			if (tstate == S_VISUAL) SEND_MOUSE(bmotion);
 		} else if (ksym == XK_e || ksym == XK_E) {
@@ -3941,6 +3950,7 @@ kpress(XEvent *ev) {
 				}
 				cx++;
 			}
+			if (cx >= term->col) cx = term->col - 1;
 			tmoveto(term, cx, term->c.y);
 			if (tstate == S_VISUAL) SEND_MOUSE(bmotion);
 		} else if (ksym == XK_b || ksym == XK_B) {
@@ -3958,10 +3968,20 @@ kpress(XEvent *ev) {
 				}
 				cx--;
 			}
+			if (cx < 0) cx = 0;
 			tmoveto(term, cx, term->c.y);
 			if (tstate == S_VISUAL) SEND_MOUSE(bmotion);
 		} else if (ksym == XK_dollar) {
-			tmoveto(term, term->col - 1, term->c.y);
+			Glyph *l = term->line[term->c.y];
+			int cx = term->col - 1;
+			while (cx >= 0) {
+				if (l[cx].c && l[cx].c[0] > ' ') {
+					break;
+				}
+				cx--;
+			}
+			if (cx < 0) cx = 0;
+			tmoveto(term, cx, term->c.y);
 			if (tstate == S_VISUAL) SEND_MOUSE(bmotion);
 		} else if (ksym == XK_braceleft || ksym == XK_braceright) {
 			Glyph *line;
@@ -4057,10 +4077,15 @@ kpress(XEvent *ev) {
 			tscrollback(term, term->row);
 			if (tstate == S_VISUAL) SEND_MOUSE(bmotion);
 			UPDATE_SCROLL;
-		} else if (ksym == XK_v) {
-			if (tstate != S_VISUAL) {
+		} else if (ksym == XK_v || ksym == XK_V) {
+			if (tstate == S_SELECT) {
 				tstate = S_VISUAL;
 				SEND_MOUSE(bpress);
+			} else if (tstate == S_VISUAL) {
+				SEND_MOUSE(brelease);
+				SEND_MOUSE(bpress);
+				SEND_MOUSE(brelease);
+				tstate = S_SELECT;
 			}
 		} else if (ksym == XK_y) {
 			if (tstate == S_VISUAL) {
@@ -4116,6 +4141,7 @@ kpress(XEvent *ev) {
 	}
 #undef SEND_MOUSE
 #undef UPDATE_SCROLL
+#undef GET_LINE
 
 	/* 1. shortcuts */
 	for(bp = shortcuts; bp < shortcuts + LEN(shortcuts); bp++) {
