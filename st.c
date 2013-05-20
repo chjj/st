@@ -4294,6 +4294,7 @@ term_add(void) {
 		memset(terms, 0, sizeof(Term));
 		focused_term = terms;
 		tnew(focused_term, 80, 24);
+		ttynew(focused_term);
 	} else {
 		for (term = terms; term; term = term->next) {
 			if (!term->next) break;
@@ -4303,9 +4304,11 @@ term_add(void) {
 		memset(term->next, 0, sizeof(Term));
 		focused_term = term->next;
 		tnew(focused_term, terms->col, terms->row);
+		char **temp = opt_cmd;
+		opt_cmd = NULL;
+		ttynew(focused_term);
+		opt_cmd = temp;
 	}
-
-	ttynew(focused_term);
 
 	if (autohide) {
 		// Another tab was created.
