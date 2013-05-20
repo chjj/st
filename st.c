@@ -4012,17 +4012,27 @@ kpress(XEvent *ev) {
 			bool saw_full = false;
 			bool found = false;
 			int first_is_space = -1;
-			int y = term->c.y + (ksym == XK_braceleft ? -1 : 1) + term->ybase;
-			int yb, i;
+			int y = term->c.y + (ksym == XK_braceleft ? -1 : 1);
+			int yb = term->ybase;
+			int i;
 
 			if (ksym == XK_braceleft) {
-				if (y < -term->sb_total) y++;
+				if (y < 0) {
+					y++;
+					if (yb > -term->sb_total) yb--;
+				}
 			} else if (ksym == XK_braceright) {
-				if (y >= term->row) y--;
+				if (y >= term->row) {
+					y--;
+					if (yb < 0) yb++;
+				}
 			}
 
 			for (;;) {
-				line = GET_LINE(term, y);
+				line = GET_LINE(term, y + yb);
+				//line = y + yb >= 0
+				//	? (yb == 0 ? term->line[y + yb] : term->last_line[y + yb])
+				//	: scrollback_get(term, -(y + yb + 1));
 
 				for (i = 0; i < term->col; i++) {
 					if (line[i].c && line[i].c[0] > ' ') {
@@ -4047,15 +4057,17 @@ kpress(XEvent *ev) {
 
 				if (ksym == XK_braceleft) {
 					y--;
-					if (y < -term->sb_total) {
+					if (y < 0) {
 						y++;
-						break;
+						if (yb > -term->sb_total) yb--;
+						else break;
 					}
 				} else if (ksym == XK_braceright) {
 					y++;
 					if (y >= term->row) {
 						y--;
-						break;
+						if (yb < 0) yb++;
+						else break;
 					}
 				}
 			}
@@ -4066,13 +4078,6 @@ kpress(XEvent *ev) {
 					yb = -term->sb_total;
 				} else if (ksym == XK_braceright) {
 					y = term->row - 1;
-					yb = 0;
-				}
-			} else {
-				if (y < 0) {
-					yb = y;
-					y = 0;
-				} else {
 					yb = 0;
 				}
 			}
