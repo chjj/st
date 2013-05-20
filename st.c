@@ -959,6 +959,8 @@ selcopy(void) {
 	int x, y, bufsize, size, i, ex;
 	Glyph *gp, *last;
 
+	// TODO: Handle selection grabbing across scrollback.
+
 	if(sel.bx == -1) {
 		str = NULL;
 	} else {
@@ -1308,7 +1310,7 @@ ttyread(Term *term) {
 	// if (...) xrealloc(select_buf, (select_buf_size *= 2));
 
 	/* mark activity */
-	if (showactivity) {
+	if (showactivity && focused_term != term) {
 		term->has_activity = true;
 	}
 
@@ -4554,6 +4556,7 @@ main(int argc, char *argv[]) {
 		opt_io = EARGF(usage());
 		break;
 	case 't':
+	case 'T':
 		opt_title = EARGF(usage());
 		break;
 	case 'w':
