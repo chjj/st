@@ -3779,22 +3779,14 @@ kpress(XEvent *ev) {
 			bool found = false;
 			bool wrapped = false;
 			int x = term->c.x + 1;
-			int y = term->c.y;
-			int yb = term->ybase;
-			int i;
+			int y = term->c.y + term->ybase;
+			int yb, i;
 			bool up = ksym == XK_N
 				? !entry.flag
 				: entry.flag;
 
-			// TODO: This is really slow with a lot of scrollback, need
-			// to use better data structures for scrollback storage.
-			// Possibly optimize by iterating through the linked list
-			// by hand, that way scrollback_get doesn't need to be
-			// called and iterate every time.
 			for (;;) {
-				line = y + yb >= 0
-					? (yb == 0 ? term->line[y + yb] : term->last_line[y + yb])
-					: scrollback_get(term, -(y + yb + 1));
+				line = GET_LINE(term, y);
 
 				while (x < term->col) {
 					for (i = 0; i < entry.pos; i++) {
@@ -3816,37 +3808,29 @@ kpress(XEvent *ev) {
 				if (!up) {
 					y++;
 					if (y >= term->row) {
-						y--;
-						if (yb < 0) {
-							y = 0; // necessary for wrapped, but why?
-							yb++;
-						} else {
-							if (wrapped) break;
-							set_message("Search wrapped. Continuing at TOP.");
-							wrapped = true;
-							y = 0;
-							yb = -term->sb_total;
-						}
+						if (wrapped) break;
+						set_message("Search wrapped. Continuing at TOP.");
+						wrapped = true;
+						y = -term->sb_total;
 					}
 				} else {
 					y--;
 					if (y < 0) {
-						y++;
-						if (yb > -term->sb_total) {
-							y = term->row - 1; // necessary for wrapped, but why?
-							yb--;
-						} else {
-							if (wrapped) break;
-							set_message("Search wrapped. Continuing at BOTTOM.");
-							wrapped = true;
-							y = term->row - 1;
-							yb = 0;
-						}
+						if (wrapped) break;
+						set_message("Search wrapped. Continuing at BOTTOM.");
+						wrapped = true;
+						y = term->row - 1;
 					}
 				}
 			}
 
 			if (found) {
+				if (y < 0) {
+					yb = y;
+					y = 0;
+				} else {
+					yb = 0;
+				}
 				tscrollback(term, -term->ybase + yb);
 				tmoveto(term, x, y);
 				if (tstate == S_VISUAL) SEND_MOUSE(bmotion);
@@ -4045,9 +4029,10 @@ kpress(XEvent *ev) {
 			}
 
 			for (;;) {
-				line = y + yb >= 0
-					? (yb == 0 ? term->line[y + yb] : term->last_line[y + yb])
-					: scrollback_get(term, -(y + yb + 1));
+				line = GET_LINE(term, y + yb);
+				//line = y + yb >= 0
+				//	? (yb == 0 ? term->line[y + yb] : term->last_line[y + yb])
+				//	: scrollback_get(term, -(y + yb + 1));
 
 				for (i = 0; i < term->col; i++) {
 					if (line[i].c && line[i].c[0] > ' ') {
