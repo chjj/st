@@ -1443,6 +1443,8 @@ void
 tswapscreen(Term *term) {
 	Line *tmp = term->line;
 
+	// TODO: Handle scrollback when the alternate buffer is active.
+
 	term->line = term->alt;
 	term->alt = tmp;
 	term->mode ^= MODE_ALTSCREEN;
@@ -3483,6 +3485,20 @@ xdrawbar(void) {
 		return;
 	}
 
+	// Ugly ways to allow a bg color:
+	//if (barcolor != -1) {
+	//	XftDrawRect(xw.draw, &dc.col[barcolor], borderpx,
+	//		borderpx + focused_term->row * xw.ch,
+	//		(focused_term->col + 1) * xw.cw, xw.ch);
+	//} else
+	//<OR>
+	//char *bg = (char *)malloc(term->col * sizeof(char));
+	//memset(bg, 0x20, term->col * sizeof(char));
+	//attr.bg = barcolor;
+	//xdraws(bg, attr, 0, focused_term->row, term->col, term->col);
+	//attr.bg = defaultbg;
+	//free(bg);
+
 	xtermclear(0, focused_term->row, focused_term->col, focused_term->row);
 
 	if (shownewbutton) {
@@ -3790,7 +3806,7 @@ kpress(XEvent *ev) {
 
 				while (x < term->col) {
 					for (i = 0; i < entry.pos; i++) {
-						if (x + i >= term->col || !line[x + i].c) break;
+						if (x + i >= term->col) break;
 						if (line[x + i].c[0] != entry.text[i]) {
 							break;
 						} else if (line[x + i].c[0] == entry.text[i] && i == entry.pos - 1) {
@@ -3928,7 +3944,7 @@ kpress(XEvent *ev) {
 				Glyph *l = term->line[term->c.y];
 				int cx = 0;
 				while (cx < term->col) {
-					if (l[cx].c && l[cx].c[0] > ' ') {
+					if (l[cx].c[0] > ' ') {
 						break;
 					}
 					cx++;
@@ -3939,12 +3955,10 @@ kpress(XEvent *ev) {
 			if (tstate == S_VISUAL) SEND_MOUSE(bmotion);
 		} else if (ksym == XK_w || ksym == XK_W) {
 			int cx = term->c.x;
-			// TODO: Make a get_real_line() function, which checks scrollback.
-			// TODO: Handle scrollback when the alternate buffer is active.
 			Glyph *l = term->line[term->c.y];
 			bool saw_space = false;
 			while (cx < term->col) {
-				if (l[cx].c && l[cx].c[0] <= ' ') {
+				if (l[cx].c[0] <= ' ') {
 					saw_space = true;
 				} else if (saw_space) {
 					break;
@@ -3959,15 +3973,15 @@ kpress(XEvent *ev) {
 			if (cx >= term->col) return;
 			Glyph *l = term->line[term->c.y];
 			while (cx < term->col) {
-				if (l[cx].c && l[cx].c[0] <= ' ') {
+				if (l[cx].c[0] <= ' ') {
 					cx++;
 				} else {
 					break;
 				}
 			}
 			while (cx < term->col) {
-				if (l[cx].c && l[cx].c[0] <= ' ') {
-					if (cx - 1 >= 0 && l[cx-1].c && l[cx-1].c[0] > ' ') {
+				if (l[cx].c[0] <= ' ') {
+					if (cx - 1 >= 0 && l[cx-1].c[0] > ' ') {
 						cx--;
 						break;
 					}
@@ -3980,10 +3994,10 @@ kpress(XEvent *ev) {
 		} else if (ksym == XK_b || ksym == XK_B) {
 			int cx = term->c.x;
 			Glyph *l = term->line[term->c.y];
-			bool saw_space = false;
+			bool saw_space = cx > 0 && l[cx].c[0] > ' ' && l[cx-1].c[0] > ' ';
 			while (cx >= 0) {
-				if (l[cx].c && l[cx].c[0] <= ' ') {
-					if (saw_space && (cx + 1 < term->col && l[cx+1].c && l[cx+1].c[0] > ' ')) {
+				if (l[cx].c[0] <= ' ') {
+					if (saw_space && (cx + 1 < term->col && l[cx+1].c[0] > ' ')) {
 						cx++;
 						break;
 					} else {
@@ -3999,7 +4013,7 @@ kpress(XEvent *ev) {
 			Glyph *l = term->line[term->c.y];
 			int cx = term->col - 1;
 			while (cx >= 0) {
-				if (l[cx].c && l[cx].c[0] > ' ') {
+				if (l[cx].c[0] > ' ') {
 					break;
 				}
 				cx--;
@@ -4032,7 +4046,7 @@ kpress(XEvent *ev) {
 				line = GET_LINE(term, y + yb);
 
 				for (i = 0; i < term->col; i++) {
-					if (line[i].c && line[i].c[0] > ' ') {
+					if (line[i].c[0] > ' ') {
 						if (first_is_space == -1) {
 							first_is_space = 0;
 						}
