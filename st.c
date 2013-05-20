@@ -3055,11 +3055,13 @@ xinit(void) {
 		die("XCreateIC failed. Could not obtain input method.\n");
 
 	/* white cursor, black outline */
-	cursor = XCreateFontCursor(xw.dpy, XC_xterm);
+	cursor = XCreateFontCursor(xw.dpy, !notextcursor ? XC_xterm : XC_left_ptr);
 	XDefineCursor(xw.dpy, xw.win, cursor);
-	XRecolorCursor(xw.dpy, cursor,
-		&(XColor){.red = 0xffff, .green = 0xffff, .blue = 0xffff},
-		&(XColor){.red = 0x0000, .green = 0x0000, .blue = 0x0000});
+	if (!notextcursor) {
+		XRecolorCursor(xw.dpy, cursor,
+			&(XColor){.red = 0xffff, .green = 0xffff, .blue = 0xffff},
+			&(XColor){.red = 0x0000, .green = 0x0000, .blue = 0x0000});
+	}
 
 	xw.xembed = XInternAtom(xw.dpy, "_XEMBED", False);
 	xw.wmdeletewin = XInternAtom(xw.dpy, "WM_DELETE_WINDOW", False);

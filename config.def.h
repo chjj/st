@@ -37,6 +37,9 @@ static bool autohide = true;
 /* always show tab number */
 static bool alwaysshownumber = false;
 
+/* no text cursor */
+static bool notextcursor = true;
+
 /* alt screens */
 static bool allowaltscreen = true;
 
