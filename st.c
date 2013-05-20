@@ -1215,11 +1215,11 @@ execsh(void) {
 	exit(EXIT_FAILURE);
 }
 
-#ifdef NO_TABS
 void
 sigchld(int a) {
 	int stat = 0;
 
+#ifdef NO_TABS
 	if(waitpid(pid, &stat, 0) < 0)
 		die("Waiting for pid %hd failed: %s\n",	pid, SERRNO);
 
@@ -1228,8 +1228,25 @@ sigchld(int a) {
 	} else {
 		exit(EXIT_FAILURE);
 	}
-}
+#else
+	for (;;) {
+		pid_t pid = waitpid(-1, &stat, WNOHANG);
+		if (pid <= 0) break;
+
+		Term *term;
+		for (term = terms; term; term = term->next) {
+			if (term->pid == pid) break;
+		}
+		if (!term) die("bad pid from sigchld\n");
+
+		if(WIFEXITED(stat)) {
+			// term_remove(term);
+		} else {
+			;
+		}
+	}
 #endif
+}
 
 void
 ttynew(Term *term) {
@@ -1260,7 +1277,6 @@ ttynew(Term *term) {
 		term->cmdfd = m;
 		term->pid = pid;
 #ifdef NO_TABS
-		// NOTE: Avoid exiting on child exit because we'll have multiple tabs
 		signal(SIGCHLD, sigchld);
 #endif
 		if(opt_io) {
@@ -4579,6 +4595,9 @@ run:
 	focused_term = terms;
 	tnew(focused_term, 80, 24);
 	xinit();
+#ifndef NO_TABS
+	signal(SIGCHLD, sigchld);
+#endif
 	ttynew(focused_term);
 	selinit();
 	if(xw.isfixed)
