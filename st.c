@@ -3524,6 +3524,9 @@ xdrawbar(void) {
 			/* we can return here, xdrawbar will just get called again anyway */
 			clicked_bar = -1;
 			term_focus(term);
+			// Potentially do things like:
+			// if (clicked_mod) tstate = S_RENAME;
+			// if (clicked_mod) term_remove(term);
 			return;
 		}
 		xdraws(buf, attr, drawn, focused_term->row, buflen, buflen);
@@ -4160,18 +4163,18 @@ kpress(XEvent *ev) {
 			UPDATE_SCROLL;
 			return;
 		}
-		if (ksym == XK_n) {
+		if (ksym == XK_r) {
 			tstate = S_RENAME;
 			entry.text[0] = '\0';
 			entry.pos = 0;
 			xdrawbar();
 			return;
 		}
-		if (ksym == XK_p) {
+		if (ksym == XK_p || ksym == XK_bracketright) {
 			selpaste(NULL);
 		} else if (ksym == XK_c) {
 			term_add();
-		} else if (ksym == XK_k) {
+		} else if (ksym == XK_k || ksym == XK_ampersand) {
 			term_remove(term);
 		} else if (ksym >= XK_1 && ksym <= XK_9) {
 			term_focus_idx(ksym - XK_0);

@@ -41,7 +41,7 @@ static bool alwaysshownumber = false;
 static bool notextcursor = true;
 
 /* show new tab button */
-static bool shownewbutton = true;
+static bool shownewbutton = false;
 
 /* alt screens */
 static bool allowaltscreen = true;
