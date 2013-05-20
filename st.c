@@ -466,6 +466,7 @@ static struct { int x; int y; bool hidden; int ybase; } normal_cursor;
 static char *status_msg = NULL;
 static struct timeval status_time;
 static struct { int flag; char text[60]; int pos; } entry;
+static int clicked_bar = -1;
 static CSIEscape csiescseq;
 static STREscape strescseq;
 static pid_t pid;
@@ -902,6 +903,12 @@ bpress(XEvent *e) {
 
 	if(e->xbutton.button == Button1) {
 		gettimeofday(&now, NULL);
+
+		if ((e->xbutton.y - borderpx) / xw.ch >= focused_term->row) {
+			clicked_bar = x2col(focused_term, e->xbutton.x);
+			xdrawbar();
+			return;
+		}
 
 		/* Clear previous selection, logically and visually. */
 		if(sel.bx != -1) {
@@ -3470,7 +3477,22 @@ xdrawbar(void) {
 	char buf[60];
 	int buflen;
 
+	if (shownewbutton && clicked_bar >= drawn && clicked_bar <= drawn + 3) {
+		clicked_bar = -1;
+		term_add();
+		return;
+	}
+
 	xtermclear(0, focused_term->row, focused_term->col, focused_term->row);
+
+	if (shownewbutton) {
+		attr.mode = ATTR_BOLD;
+		attr.fg = 10;
+		attr.bg = defaultbg;
+		xdraws("new", attr, drawn, focused_term->row, 3, 3);
+		drawn += 2;
+		drawn += 3;
+	}
 
 	for (term = terms; term; term = term->next) {
 		i++;
@@ -3497,6 +3519,12 @@ xdrawbar(void) {
 		buflen = strlen(buf);
 		if (drawn + buflen > term->col) {
 			break;
+		}
+		if (clicked_bar >= drawn && clicked_bar <= drawn + buflen) {
+			/* we can return here, xdrawbar will just get called again anyway */
+			clicked_bar = -1;
+			term_focus(term);
+			return;
 		}
 		xdraws(buf, attr, drawn, focused_term->row, buflen, buflen);
 		drawn += 2;

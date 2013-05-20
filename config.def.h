@@ -40,6 +40,9 @@ static bool alwaysshownumber = false;
 /* no text cursor */
 static bool notextcursor = true;
 
+/* show new tab button */
+static bool shownewbutton = true;
+
 /* alt screens */
 static bool allowaltscreen = true;
 
