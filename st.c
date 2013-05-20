@@ -4030,9 +4030,6 @@ kpress(XEvent *ev) {
 
 			for (;;) {
 				line = GET_LINE(term, y + yb);
-				//line = y + yb >= 0
-				//	? (yb == 0 ? term->line[y + yb] : term->last_line[y + yb])
-				//	: scrollback_get(term, -(y + yb + 1));
 
 				for (i = 0; i < term->col; i++) {
 					if (line[i].c && line[i].c[0] > ' ') {
