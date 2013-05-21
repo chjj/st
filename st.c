@@ -4028,31 +4028,35 @@ kpress(XEvent *ev) {
 			int x = term->c.x;
 			int y = term->c.y;
 			int yb = term->ybase;
-			Glyph *l = term->line[term->c.y];
 			bool saw_space = false;
-			while (x < term->col) {
-				if (l[x].c[0] <= ' ') {
-					saw_space = true;
-				} else if (saw_space) {
-					break;
-				}
-				x++;
-			}
-			if (x >= term->col) x = term->col - 1;
 
-			// TODO: potentially refactor to use a loop or remove
-			if (x == term->col - 1 && l[x].c[0] <= ' ') {
-				x = 0;
-				if (++y >= term->row) {
-					y--;
-					if (++yb > 0) {
-						yb = 0;
-						x = term->c.x;
+			for (;;) {
+				Glyph *l = GET_LINE(term, y + yb);
+				while (x < term->col) {
+					if (l[x].c[0] <= ' ') {
+						saw_space = true;
+					} else if (saw_space) {
+						break;
 					}
+					x++;
 				}
-				tscrollback(term, -term->ybase + yb);
+				if (x >= term->col) x = term->col - 1;
+				if (x == term->col - 1 && l[x].c[0] <= ' ') {
+					x = 0;
+					if (++y >= term->row) {
+						y--;
+						if (++yb > 0) {
+							yb = 0;
+							x = term->c.x;
+							break;
+						}
+					}
+					continue;
+				}
+				break;
 			}
 
+			tscrollback(term, -term->ybase + yb);
 			tmoveto(term, x, y);
 			if (tstate == S_VISUAL) SEND_MOUSE(bmotion);
 		} else if (ksym == XK_e || ksym == XK_E) {
@@ -4060,33 +4064,9 @@ kpress(XEvent *ev) {
 			int y = term->c.y;
 			int yb = term->ybase;
 			if (x >= term->col) x--;
-			Glyph *l = term->line[term->c.y];
-			while (x < term->col) {
-				if (l[x].c[0] <= ' ') {
-					x++;
-				} else {
-					break;
-				}
-			}
-			while (x < term->col) {
-				if (l[x].c[0] <= ' ') {
-					if (x - 1 >= 0 && l[x-1].c[0] > ' ') {
-						x--;
-						break;
-					}
-				}
-				x++;
-			}
-			if (x >= term->col) x = term->col - 1;
 
-			// TODO: refactor to use a loop or remove
-			if (x == term->col - 1 && l[x].c[0] <= ' ') {
-				x = 0;
-				if (++y >= term->row) {
-					y--;
-					if (++yb > 0) yb = 0;
-				}
-				l = GET_LINE(term, y + yb);
+			for (;;) {
+				Glyph *l = GET_LINE(term, y + yb);
 				while (x < term->col) {
 					if (l[x].c[0] <= ' ') {
 						x++;
@@ -4104,55 +4084,59 @@ kpress(XEvent *ev) {
 					x++;
 				}
 				if (x >= term->col) x = term->col - 1;
-				tscrollback(term, -term->ybase + yb);
+				if (x == term->col - 1 && l[x].c[0] <= ' ') {
+					x = 0;
+					if (++y >= term->row) {
+						y--;
+						if (++yb > 0) {
+							yb = 0;
+							break;
+						}
+					}
+					continue;
+				}
+				break;
 			}
 
+			tscrollback(term, -term->ybase + yb);
 			tmoveto(term, x, y);
 			if (tstate == S_VISUAL) SEND_MOUSE(bmotion);
-		} else if (ksym == XK_b || ksym == XK_B) {
+		} else if ((ksym == XK_b || ksym == XK_B) && !match(ControlMask, e->state)) {
 			int x = term->c.x;
 			int y = term->c.y;
 			int yb = term->ybase;
-			Glyph *l = term->line[term->c.y];
-			bool saw_space = x > 0 && l[x].c[0] > ' ' && l[x-1].c[0] > ' ';
-			while (x >= 0) {
-				if (l[x].c[0] <= ' ') {
-					if (saw_space && (x + 1 < term->col && l[x+1].c[0] > ' ')) {
-						x++;
-						break;
-					} else {
-						saw_space = true;
-					}
-				}
-				x--;
-			}
-			if (x < 0) x = 0;
 
-			// TODO: refactor to use a loop or remove
-			if (x == 0 && (l[x].c[0] <= ' ' || !saw_space)) {
-				x = term->col - 1;
-				if (--y < 0) {
-					y++;
-					if (--yb < -term->sb_total) yb++;
-				}
-				l = GET_LINE(term, y + yb);
-				while (x >= 0) {
-					if (l[x].c[0] > ' ') {
-						break;
-					}
-					x--;
-				}
+			for (;;) {
+				Glyph *l = GET_LINE(term, y + yb);
+				bool saw_space = x > 0 && l[x].c[0] > ' ' && l[x-1].c[0] > ' ';
 				while (x >= 0) {
 					if (l[x].c[0] <= ' ') {
-						x++;
-						break;
+						if (saw_space && (x + 1 < term->col && l[x+1].c[0] > ' ')) {
+							x++;
+							break;
+						} else {
+							saw_space = true;
+						}
 					}
 					x--;
 				}
 				if (x < 0) x = 0;
-				tscrollback(term, -term->ybase + yb);
+				if (x == 0 && (l[x].c[0] <= ' ' || !saw_space)) {
+					x = term->col - 1;
+					if (--y < 0) {
+						y++;
+						if (--yb < -term->sb_total) {
+							yb++;
+							x = 0;
+							break;
+						}
+					}
+					continue;
+				}
+				break;
 			}
 
+			tscrollback(term, -term->ybase + yb);
 			tmoveto(term, x, y);
 			if (tstate == S_VISUAL) SEND_MOUSE(bmotion);
 		} else if (ksym == XK_dollar) {
