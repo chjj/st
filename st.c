@@ -4650,6 +4650,10 @@ main(int argc, char *argv[]) {
 	xw.fw = xw.fh = xw.fx = xw.fy = 0;
 	xw.isfixed = False;
 
+	for (int i = 0; i < argc; i++) {
+		if (strcmp(argv[i], "-name") == 0) argv[i][2] = '\0';
+	}
+
 	ARGBEGIN {
 	case 'a':
 		allowaltscreen = false;
@@ -4689,6 +4693,10 @@ main(int argc, char *argv[]) {
 	case 't':
 	case 'T':
 		opt_title = EARGF(usage());
+		break;
+	case 'n':
+		// opt_name = EARGF(usage());
+		EARGF(usage());
 		break;
 	case 'w':
 		opt_embed = EARGF(usage());
