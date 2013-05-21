@@ -1512,6 +1512,7 @@ set_message(char *fmt, ...) {
 void
 tscrollback(Term *term, int n) {
 	if (term->mode & MODE_APPKEYPAD) {
+	// || (term->mode & MODE_ALTSCREEN)) {
 		return;
 	}
 
@@ -1606,7 +1607,8 @@ tscrollup(Term *term, int orig, int n) {
 	Line temp;
 	LIMIT(n, 0, term->bot-orig+1);
 
-	if (orig == term->top && term->ybase == 0) {
+	if (orig == term->top && term->ybase == 0 && !(term->mode & MODE_APPKEYPAD)) {
+	// && !(term->mode & MODE_ALTSCREEN)) {
 		for(i = orig; i <= orig + n - 1; i++) {
 			scrollback_add(term, i);
 		}
