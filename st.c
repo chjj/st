@@ -394,6 +394,11 @@ static void xunloadfonts(void);
 static void xresize(int, int);
 static void xdrawbar(void);
 
+#ifdef USE_BLANK_CURSOR
+static void xcursorblank(void);
+static void xcursorunblank(void);
+#endif
+
 static void expose(XEvent *);
 static void visibility(XEvent *);
 static void unmap(XEvent *);
@@ -481,6 +486,12 @@ static char *opt_font = NULL;
 
 static char *usedfont = NULL;
 static int usedfontsize = 0;
+
+#ifdef USE_BLANK_CURSOR
+static Cursor cursor;
+static Cursor blank_cursor;
+static bool hidden_cursor = false;
+#endif
 
 /* Font Ring Cache */
 enum {
@@ -1149,6 +1160,10 @@ brelease(XEvent *e) {
 void
 bmotion(XEvent *e) {
 	int oldey, oldex, oldsby, oldsey;
+
+#ifdef USE_BLANK_CURSOR
+	xcursorunblank();
+#endif
 
 	if(IS_SET(focused_term, MODE_MOUSE)) {
 		mousereport(e);
@@ -2994,7 +3009,9 @@ void
 xinit(void) {
 	XSetWindowAttributes attrs;
 	XGCValues gcvalues;
+#ifndef USE_BLANK_CURSOR
 	Cursor cursor;
+#endif
 	Window parent;
 	int sw, sh;
 
@@ -3090,6 +3107,19 @@ xinit(void) {
 			&(XColor){.red = 0x0000, .green = 0x0000, .blue = 0x0000});
 	}
 
+	/* blank cursor */
+#ifdef USE_BLANK_CURSOR
+	XColor black = {0};
+#undef Font
+	//Font f = XLoadFont(xw.dpy, "fixed");
+#define Font Font_
+	//blank_cursor = XCreateGlyphCursor(xw.dpy, f, f, ' ', ' ', &black, &black);
+	//XUnloadFont(xw.dpy, f);
+  XFontStruct *f = XLoadQueryFont(xw.dpy, "fixed");
+	blank_cursor = XCreateGlyphCursor(xw.dpy, f->fid, f->fid, 'X', ' ', &black, &black);
+	XFreeFont(xw.dpy, f);
+#endif
+
 	xw.xembed = XInternAtom(xw.dpy, "_XEMBED", False);
 	xw.wmdeletewin = XInternAtom(xw.dpy, "WM_DELETE_WINDOW", False);
 	XSetWMProtocols(xw.dpy, xw.win, &xw.wmdeletewin, 1);
@@ -3099,6 +3129,23 @@ xinit(void) {
 	xhints();
 	XSync(xw.dpy, 0);
 }
+
+#ifdef USE_BLANK_CURSOR
+void
+xcursorblank(void) {
+	if (hidden_cursor) return;
+	hidden_cursor = true;
+	XDefineCursor(xw.dpy, xw.win, blank_cursor);
+	XFlush(xw.dpy);
+}
+
+void
+xcursorunblank(void) {
+	if (!hidden_cursor) return;
+	hidden_cursor = false;
+	XDefineCursor(xw.dpy, xw.win, cursor);
+}
+#endif
 
 void
 xdraws(char *s, Glyph base, int x, int y, int charlen, int bytelen) {
@@ -3730,6 +3777,10 @@ kpress(XEvent *ev) {
 	long c;
 	Status status;
 	Shortcut *bp;
+
+#ifdef USE_BLANK_CURSOR
+	xcursorblank();
+#endif
 
 	if(IS_SET(focused_term, MODE_KBDLOCK))
 		return;
