@@ -4013,84 +4013,159 @@ kpress(XEvent *ev) {
 				tmoveto(term, 0, term->c.y);
 			} else if (ksym == XK_asciicircum) {
 				Glyph *l = term->line[term->c.y];
-				int cx = 0;
-				while (cx < term->col) {
-					if (l[cx].c[0] > ' ') {
+				int x = 0;
+				while (x < term->col) {
+					if (l[x].c[0] > ' ') {
 						break;
 					}
-					cx++;
+					x++;
 				}
-				if (cx >= term->col) cx = term->col - 1;
-				tmoveto(term, cx, term->c.y);
+				if (x >= term->col) x = term->col - 1;
+				tmoveto(term, x, term->c.y);
 			}
 			if (tstate == S_VISUAL) SEND_MOUSE(bmotion);
 		} else if (ksym == XK_w || ksym == XK_W) {
-			int cx = term->c.x;
+			int x = term->c.x;
+			int y = term->c.y;
+			int yb = term->ybase;
 			Glyph *l = term->line[term->c.y];
 			bool saw_space = false;
-			while (cx < term->col) {
-				if (l[cx].c[0] <= ' ') {
+			while (x < term->col) {
+				if (l[x].c[0] <= ' ') {
 					saw_space = true;
 				} else if (saw_space) {
 					break;
 				}
-				cx++;
+				x++;
 			}
-			if (cx >= term->col) cx = term->col - 1;
-			tmoveto(term, cx, term->c.y);
+			if (x >= term->col) x = term->col - 1;
+
+			// TODO: potentially refactor to use a loop or remove
+			if (x == term->col - 1 && l[x].c[0] <= ' ') {
+				x = 0;
+				if (++y >= term->row) {
+					y--;
+					if (++yb > 0) {
+						yb = 0;
+						x = term->c.x;
+					}
+				}
+				tscrollback(term, -term->ybase + yb);
+			}
+
+			tmoveto(term, x, y);
 			if (tstate == S_VISUAL) SEND_MOUSE(bmotion);
 		} else if (ksym == XK_e || ksym == XK_E) {
-			int cx = term->c.x + 1;
-			if (cx >= term->col) return;
+			int x = term->c.x + 1;
+			int y = term->c.y;
+			int yb = term->ybase;
+			if (x >= term->col) x--;
 			Glyph *l = term->line[term->c.y];
-			while (cx < term->col) {
-				if (l[cx].c[0] <= ' ') {
-					cx++;
+			while (x < term->col) {
+				if (l[x].c[0] <= ' ') {
+					x++;
 				} else {
 					break;
 				}
 			}
-			while (cx < term->col) {
-				if (l[cx].c[0] <= ' ') {
-					if (cx - 1 >= 0 && l[cx-1].c[0] > ' ') {
-						cx--;
+			while (x < term->col) {
+				if (l[x].c[0] <= ' ') {
+					if (x - 1 >= 0 && l[x-1].c[0] > ' ') {
+						x--;
 						break;
 					}
 				}
-				cx++;
+				x++;
 			}
-			if (cx >= term->col) cx = term->col - 1;
-			tmoveto(term, cx, term->c.y);
+			if (x >= term->col) x = term->col - 1;
+
+			// TODO: refactor to use a loop or remove
+			if (x == term->col - 1 && l[x].c[0] <= ' ') {
+				x = 0;
+				if (++y >= term->row) {
+					y--;
+					if (++yb > 0) yb = 0;
+				}
+				l = GET_LINE(term, y + yb);
+				while (x < term->col) {
+					if (l[x].c[0] <= ' ') {
+						x++;
+					} else {
+						break;
+					}
+				}
+				while (x < term->col) {
+					if (l[x].c[0] <= ' ') {
+						if (x - 1 >= 0 && l[x-1].c[0] > ' ') {
+							x--;
+							break;
+						}
+					}
+					x++;
+				}
+				if (x >= term->col) x = term->col - 1;
+				tscrollback(term, -term->ybase + yb);
+			}
+
+			tmoveto(term, x, y);
 			if (tstate == S_VISUAL) SEND_MOUSE(bmotion);
 		} else if (ksym == XK_b || ksym == XK_B) {
-			int cx = term->c.x;
+			int x = term->c.x;
+			int y = term->c.y;
+			int yb = term->ybase;
 			Glyph *l = term->line[term->c.y];
-			bool saw_space = cx > 0 && l[cx].c[0] > ' ' && l[cx-1].c[0] > ' ';
-			while (cx >= 0) {
-				if (l[cx].c[0] <= ' ') {
-					if (saw_space && (cx + 1 < term->col && l[cx+1].c[0] > ' ')) {
-						cx++;
+			bool saw_space = x > 0 && l[x].c[0] > ' ' && l[x-1].c[0] > ' ';
+			while (x >= 0) {
+				if (l[x].c[0] <= ' ') {
+					if (saw_space && (x + 1 < term->col && l[x+1].c[0] > ' ')) {
+						x++;
 						break;
 					} else {
 						saw_space = true;
 					}
 				}
-				cx--;
+				x--;
 			}
-			if (cx < 0) cx = 0;
-			tmoveto(term, cx, term->c.y);
+			if (x < 0) x = 0;
+
+			// TODO: refactor to use a loop or remove
+			if (x == 0 && (l[x].c[0] <= ' ' || !saw_space)) {
+				x = term->col - 1;
+				if (--y < 0) {
+					y++;
+					if (--yb < -term->sb_total) yb++;
+				}
+				l = GET_LINE(term, y + yb);
+				while (x >= 0) {
+					if (l[x].c[0] > ' ') {
+						break;
+					}
+					x--;
+				}
+				while (x >= 0) {
+					if (l[x].c[0] <= ' ') {
+						x++;
+						break;
+					}
+					x--;
+				}
+				if (x < 0) x = 0;
+				tscrollback(term, -term->ybase + yb);
+			}
+
+			tmoveto(term, x, y);
 			if (tstate == S_VISUAL) SEND_MOUSE(bmotion);
 		} else if (ksym == XK_dollar) {
 			Glyph *l = term->line[term->c.y];
-			int cx = term->col - 1;
-			while (cx >= 0) {
-				if (l[cx].c[0] > ' ') {
+			int x = term->col - 1;
+			while (x >= 0) {
+				if (l[x].c[0] > ' ') {
 					break;
 				}
-				cx--;
+				x--;
 			}
-			if (cx < 0) cx = 0;
-			tmoveto(term, cx, term->c.y);
+			if (x < 0) x = 0;
+			tmoveto(term, x, term->c.y);
 			if (tstate == S_VISUAL) SEND_MOUSE(bmotion);
 		} else if (ksym == XK_braceleft || ksym == XK_braceright) {
 			Glyph *line;
