@@ -891,7 +891,7 @@ bpress(XEvent *e) {
 	struct timeval now;
 	Mousekey *mk;
 
-	if(IS_SET(focused_term, MODE_MOUSE)) {
+	if(tstate == S_NORMAL && IS_SET(focused_term, MODE_MOUSE)) {
 		mousereport(e);
 		return;
 	}
@@ -1138,7 +1138,7 @@ xsetsel(char *str) {
 
 void
 brelease(XEvent *e) {
-	if(IS_SET(focused_term, MODE_MOUSE)) {
+	if(tstate == S_NORMAL && IS_SET(focused_term, MODE_MOUSE)) {
 		mousereport(e);
 		return;
 	}
@@ -1165,7 +1165,7 @@ bmotion(XEvent *e) {
 	xcursorunblank();
 #endif
 
-	if(IS_SET(focused_term, MODE_MOUSE)) {
+	if(tstate == S_NORMAL && IS_SET(focused_term, MODE_MOUSE)) {
 		mousereport(e);
 		return;
 	}
