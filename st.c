@@ -1250,7 +1250,8 @@ sigchld(int a) {
 		for (term = terms; term; term = term->next) {
 			if (term->pid == pid) break;
 		}
-		if (!term) die("bad pid from sigchld\n");
+		//if (!term) die("bad pid from sigchld\n");
+		if (!term && terms->next) die("bad pid from sigchld\n");
 
 		if(WIFEXITED(stat)) {
 			// term_remove(term);
@@ -3292,6 +3293,16 @@ xdraws(char *s, Glyph base, int x, int y, int charlen, int bytelen) {
 							winy + font->ascent,
 							(FcChar8 *)u8fs,
 							u8fblen);
+#ifdef FORCE_BOLD
+					if ((base.mode & ATTR_BOLD) && forcebold) {
+						XftDrawStringUtf8(xw.draw, fg,
+								font->match, xp + 1,
+								winy + font->ascent,
+								(FcChar8 *)u8fs,
+								u8fblen);
+						xp++;
+					}
+#endif
 					xp += font->width * u8fl;
 
 				}
@@ -3369,6 +3380,15 @@ xdraws(char *s, Glyph base, int x, int y, int charlen, int bytelen) {
 		XftDrawStringUtf8(xw.draw, fg, frc[frp].font,
 				xp, winy + frc[frp].font->ascent,
 				(FcChar8 *)u8c, u8cblen);
+
+#ifdef FORCE_BOLD
+		if ((base.mode & ATTR_BOLD) && forcebold) {
+			XftDrawStringUtf8(xw.draw, fg, frc[frp].font,
+					xp + 1, winy + frc[frp].font->ascent,
+					(FcChar8 *)u8c, u8cblen);
+			xp++;
+		}
+#endif
 
 		xp += font->width;
 	}
@@ -3476,11 +3496,11 @@ redraw(int timeout) {
 void
 draw(void) {
 	drawregion(0, 0, focused_term->col, focused_term->row);
-	XGCValues gcv;
-	gcv.graphics_exposures = 1; XChangeGC(xw.dpy, dc.gc, GCGraphicsExposures, &gcv);
+	//XGCValues gcv;
+	//gcv.graphics_exposures = 1; XChangeGC(xw.dpy, dc.gc, GCGraphicsExposures, &gcv);
 	XCopyArea(xw.dpy, xw.buf, xw.win, dc.gc, 0, 0, xw.w,
 			xw.h, 0, 0);
-	gcv.graphics_exposures = 0; XChangeGC(xw.dpy, dc.gc, GCGraphicsExposures, &gcv);
+	//gcv.graphics_exposures = 0; XChangeGC(xw.dpy, dc.gc, GCGraphicsExposures, &gcv);
 	XSetForeground(xw.dpy, dc.gc,
 			dc.col[IS_SET(focused_term, MODE_REVERSE)?
 				defaultfg : defaultbg].pixel);
