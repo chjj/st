@@ -906,20 +906,14 @@ bpress(XEvent *e) {
 		}
 	}
 
-	if (e->xbutton.button == Button4) {
-		tscrollback(focused_term, -(focused_term->row / 2));
-	} else if (e->xbutton.button == Button5) {
-		tscrollback(focused_term, focused_term->row / 2);
-	}
-
 	if(e->xbutton.button == Button1) {
-		gettimeofday(&now, NULL);
-
 		if ((e->xbutton.y - borderpx) / xw.ch >= focused_term->row) {
 			clicked_bar = x2col(focused_term, e->xbutton.x);
 			xdrawbar();
 			return;
 		}
+
+		gettimeofday(&now, NULL);
 
 		/* Clear previous selection, logically and visually. */
 		if(sel.bx != -1) {
@@ -961,6 +955,10 @@ bpress(XEvent *e) {
 		}
 		sel.tclick2 = sel.tclick1;
 		sel.tclick1 = now;
+	} else if (e->xbutton.button == Button4) {
+		tscrollback(focused_term, -(focused_term->row / 2));
+	} else if (e->xbutton.button == Button5) {
+		tscrollback(focused_term, focused_term->row / 2);
 	}
 }
 
@@ -1593,7 +1591,7 @@ scrollback_add(Term *term, int i) {
 	if (term->sb_pos == scrollback) {
 		term->sb_pos = 0;
 	}
-	term->sb[term->sb_pos] = (Glyph *)xmalloc(term->col * sizeof(Glyph));
+	//if (!term->sb[term->sb_pos]) term->sb[term->sb_pos] = (Glyph *)xmalloc(term->col * sizeof(Glyph));
 	memcpy(term->sb[term->sb_pos], term->line[i], term->col * sizeof(Glyph));
 	term->sb_pos++;
 	if (term->sb_total != scrollback) {
@@ -3478,8 +3476,11 @@ redraw(int timeout) {
 void
 draw(void) {
 	drawregion(0, 0, focused_term->col, focused_term->row);
+	XGCValues gcv;
+	gcv.graphics_exposures = 1; XChangeGC(xw.dpy, dc.gc, GCGraphicsExposures, &gcv);
 	XCopyArea(xw.dpy, xw.buf, xw.win, dc.gc, 0, 0, xw.w,
 			xw.h, 0, 0);
+	gcv.graphics_exposures = 0; XChangeGC(xw.dpy, dc.gc, GCGraphicsExposures, &gcv);
 	XSetForeground(xw.dpy, dc.gc,
 			dc.col[IS_SET(focused_term, MODE_REVERSE)?
 				defaultfg : defaultbg].pixel);
@@ -3527,6 +3528,12 @@ drawregion(int x1, int y1, int x2, int y2) {
 		}
 		if(ib > 0)
 			xdraws(buf, base, ox, y, ic, ib);
+		// Improve rendering engine to be similar to urxvt:
+		// ~/downloads/rxvt-unicode-9.18/src/screen.C
+		// ~/downloads/rxvt-unicode-9.18/src/rxvtfont.C
+		//XDrawLine(dpy, vt, gc,
+		//	xpixel, ypixel + font->ascent + 1,
+		//	xpixel + Width2Pixel (count) - 1, ypixel + font->ascent + 1);
 	}
 
 	xdrawcursor();
