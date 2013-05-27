@@ -1246,12 +1246,13 @@ sigchld(int a) {
 		pid_t pid = waitpid(-1, &stat, WNOHANG);
 		if (pid <= 0) break;
 
+		if (!terms) exit(EXIT_SUCCESS);
+
 		Term *term;
 		for (term = terms; term; term = term->next) {
 			if (term->pid == pid) break;
 		}
-		//if (!term) die("bad pid from sigchld\n");
-		if (!term && terms->next) die("bad pid from sigchld\n");
+		if (!term) die("bad pid from sigchld\n");
 
 		if(WIFEXITED(stat)) {
 			// term_remove(term);
@@ -1555,24 +1556,56 @@ tscrollback(Term *term, int n) {
 }
 
 void
+xmove(int dx, int dy, int sx, int sy, int w, int h) {
+	XCopyArea(xw.dpy, xw.buf, xw.buf, dc.gc,
+		(sx*xw.cw) + borderpx, (sy*xw.ch) + borderpx,
+		(w*xw.cw) + borderpx, (h*xw.ch) + borderpx,
+		(dx*xw.cw) + borderpx, (dy*xw.ch) + borderpx);
+}
+
+void
 tscrolldown(Term *term, int orig, int n) {
 	int i;
 	Line temp;
 
 	LIMIT(n, 0, term->bot-orig+1);
 
-	tclearregion(term, 0, term->bot-n+1, term->col-1, term->bot);
+	if (term != focused_term) {
+		tclearregion(term, 0, term->bot-n+1, term->col-1, term->bot);
 
-	for(i = term->bot; i >= orig+n; i--) {
-		temp = term->line[i];
-		term->line[i] = term->line[i-n];
-		term->line[i-n] = temp;
+		for(i = term->bot; i >= orig+n; i--) {
+			temp = term->line[i];
+			term->line[i] = term->line[i-n];
+			term->line[i-n] = temp;
 
-		term->dirty[i] = 1;
-		term->dirty[i-n] = 1;
+			term->dirty[i] = 1;
+			term->dirty[i-n] = 1;
+		}
+
+		selscroll(term, orig, n);
+	} else {
+		/* need to get dirty lines written to the buffer */
+		drawregion(0, orig + n - 1, term->col, term->row);
+
+		/* remove the old cursor */
+		// if (orig >= term->c.y...
+		xdraws(
+			term->line[term->c.y][term->c.x].c,
+			term->line[term->c.y][term->c.x],
+			term->c.x, term->c.y, 1,
+			utf8size(term->line[term->c.y][term->c.x].c));
+
+		for(i = term->bot; i >= orig+n; i--) {
+			temp = term->line[i];
+			term->line[i] = term->line[i-n];
+			term->line[i-n] = temp;
+		}
+
+		xmove(0, orig+n, 0, orig, term->col, term->bot-orig);
+		tclearregion(term, 0, orig, term->col-1, orig+n-1);
+
+		selscroll(term, orig, n);
 	}
-
-	selscroll(term, orig, n);
 }
 
 Glyph *
@@ -1613,18 +1646,42 @@ tscrollup(Term *term, int orig, int n) {
 		}
 	}
 
-	tclearregion(term, 0, orig, term->col-1, orig+n-1);
+	if (term != focused_term) {
+		tclearregion(term, 0, orig, term->col-1, orig+n-1);
 
-	for(i = orig; i <= term->bot-n; i++) {
-		 temp = term->line[i];
-		 term->line[i] = term->line[i+n];
-		 term->line[i+n] = temp;
+		for(i = orig; i <= term->bot-n; i++) {
+			 temp = term->line[i];
+			 term->line[i] = term->line[i+n];
+			 term->line[i+n] = temp;
 
-		 term->dirty[i] = 1;
-		 term->dirty[i+n] = 1;
+			 term->dirty[i] = 1;
+			 term->dirty[i+n] = 1;
+		}
+
+		selscroll(term, orig, -n);
+	} else {
+		/* need to get dirty lines written to the buffer */
+		drawregion(0, orig + n - 1, term->col, term->row);
+
+		/* remove the old cursor */
+		// if (orig >= term->c.y...
+		xdraws(
+			term->line[term->c.y][term->c.x].c,
+			term->line[term->c.y][term->c.x],
+			term->c.x, term->c.y, 1,
+			utf8size(term->line[term->c.y][term->c.x].c));
+
+		for(i = orig; i <= term->bot-n; i++) {
+			 temp = term->line[i];
+			 term->line[i] = term->line[i+n];
+			 term->line[i+n] = temp;
+		}
+
+		xmove(0, orig, 0, orig+n, term->col, term->bot-orig);
+		tclearregion(term, 0, term->bot-n+1, term->col-1, term->bot);
+
+		selscroll(term, orig, -n);
 	}
-
-	selscroll(term, orig, -n);
 }
 
 void
