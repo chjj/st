@@ -78,6 +78,8 @@ char *argv0;
 
 #define VT102ID "\033[?6c"
 
+#define OPTIMIZE_RENDER
+
 enum glyph_attribute {
 	ATTR_NULL      = 0,
 	ATTR_REVERSE   = 1,
@@ -215,6 +217,9 @@ typedef struct _Term {
 	Line *last_line;
 	bool has_activity;
 	char *title;
+#ifdef OPTIMIZE_RENDER
+	ssize_t last_ret;
+#endif
 } Term;
 
 /* Purely graphic info */
@@ -1340,6 +1345,10 @@ ttyread(Term *term) {
 	// TODO: Potentially buffer data here:
 	// if (...) xrealloc(select_buf, (select_buf_size *= 2));
 
+#ifdef OPTIMIZE_RENDER
+	term->last_ret = ret;
+#endif
+
 	/* mark activity */
 	if (showactivity && focused_term != term) {
 		term->has_activity = true;
@@ -1570,7 +1579,10 @@ tscrolldown(Term *term, int orig, int n) {
 
 	LIMIT(n, 0, term->bot-orig+1);
 
+#ifdef OPTIMIZE_RENDER
+	//if (n > 3 || term != focused_term) {
 	if (term != focused_term) {
+#endif
 		tclearregion(term, 0, term->bot-n+1, term->col-1, term->bot);
 
 		for(i = term->bot; i >= orig+n; i--) {
@@ -1583,6 +1595,7 @@ tscrolldown(Term *term, int orig, int n) {
 		}
 
 		selscroll(term, orig, n);
+#ifdef OPTIMIZE_RENDER
 	} else {
 		/* need to get dirty lines written to the buffer */
 		drawregion(0, orig + n - 1, term->col, term->row);
@@ -1606,6 +1619,7 @@ tscrolldown(Term *term, int orig, int n) {
 
 		selscroll(term, orig, n);
 	}
+#endif
 }
 
 Glyph *
@@ -1646,7 +1660,10 @@ tscrollup(Term *term, int orig, int n) {
 		}
 	}
 
+#ifdef OPTIMIZE_RENDER
+	//if (n > 3 || term != focused_term) {
 	if (term != focused_term) {
+#endif
 		tclearregion(term, 0, orig, term->col-1, orig+n-1);
 
 		for(i = orig; i <= term->bot-n; i++) {
@@ -1659,6 +1676,7 @@ tscrollup(Term *term, int orig, int n) {
 		}
 
 		selscroll(term, orig, -n);
+#ifdef OPTIMIZE_RENDER
 	} else {
 		/* need to get dirty lines written to the buffer */
 		drawregion(0, orig + n - 1, term->col, term->row);
@@ -1682,6 +1700,7 @@ tscrollup(Term *term, int orig, int n) {
 
 		selscroll(term, orig, -n);
 	}
+#endif
 }
 
 void
@@ -1801,6 +1820,18 @@ tsetchar(Term *term, char *c, Glyph *attr, int x, int y) {
 		}
 	}
 
+#ifdef OPTIMIZE_RENDER
+	if (term == focused_term && term->last_ret > (term->row * term->col) / 2) {
+		term->line[y][x] = *attr;
+		memcpy(term->line[y][x].c, c, UTF_SIZ);
+		xdraws(
+			term->line[y][x].c,
+			term->line[y][x], x, y, 1,
+			utf8size(term->line[y][x].c));
+		return;
+	}
+#endif
+
 	term->dirty[y] = 1;
 	term->line[y][x] = *attr;
 	memcpy(term->line[y][x].c, c, UTF_SIZ);
@@ -1820,6 +1851,21 @@ tclearregion(Term *term, int x1, int y1, int x2, int y2) {
 	LIMIT(y1, 0, term->row-1);
 	LIMIT(y2, 0, term->row-1);
 
+#ifdef OPTIMIZE_RENDER_
+	if (y2 - y1 <= 5 && term == focused_term) {
+		for(y = y1; y <= y2; y++) {
+			for(x = x1; x <= x2; x++) {
+				if(selected(x, y))
+					selclear(NULL);
+				term->line[y][x] = term->c.attr;
+				memcpy(term->line[y][x].c, " ", 2);
+				if (xw.draw) xdraws(term->line[y][x].c, term->line[y][x], x, y, 1, 1);
+			}
+		}
+		return;
+	}
+#endif
+
 	for(y = y1; y <= y2; y++) {
 		term->dirty[y] = 1;
 		for(x = x1; x <= x2; x++) {
@@ -1837,7 +1883,10 @@ tdeletechar(Term *term, int n) {
 	int dst = term->c.x;
 	int size = term->col - src;
 
+#ifndef OPTIMIZE_RENDER_
+	// NOTE: Probably useless anyway since tclearregion sets dirty flag anyway.
 	term->dirty[term->c.y] = 1;
+#endif
 
 	if(src >= term->col) {
 		tclearregion(term, term->c.x, term->c.y, term->col-1, term->c.y);
@@ -1855,7 +1904,10 @@ tinsertblank(Term *term, int n) {
 	int dst = src + n;
 	int size = term->col - dst;
 
+#ifndef OPTIMIZE_RENDER_
+	// NOTE: Probably useless anyway since tclearregion sets dirty flag anyway.
 	term->dirty[term->c.y] = 1;
+#endif
 
 	if(dst >= term->col) {
 		tclearregion(term, term->c.x, term->c.y, term->col-1, term->c.y);

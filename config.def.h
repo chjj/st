@@ -29,7 +29,7 @@ static unsigned int tripleclicktimeout = 600;
 static int scrollback = 10000;
 
 /* activity markers */
-static bool showactivity = true;
+static bool showactivity = false;
 
 /* autohide statusbar */
 static bool autohide = true;
