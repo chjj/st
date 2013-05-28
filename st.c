@@ -219,6 +219,7 @@ typedef struct _Term {
 	char *title;
 #ifdef OPTIMIZE_RENDER
 	ssize_t last_ret;
+	bool swapped_lines;
 #endif
 } Term;
 
@@ -1573,8 +1574,13 @@ tscrolldown(Term *term, int orig, int n) {
 	LIMIT(n, 0, term->bot-orig+1);
 
 #ifdef OPTIMIZE_RENDER
-	//if (n <= 3 && term == focused_term) {
-	if (term == focused_term) {
+	if (term == focused_term && !term->swapped_lines) {
+		// NOTE: We only allow this optimization once per draw.
+		// NOTE: We could also measure time.
+		// NOTE: Could make this an int and increment and check
+		// (could also do this for tsetchar optimization).
+		term->swapped_lines = true;
+
 		/* need to get dirty lines written to the buffer */
 		//drawregion(0, 0, term->col, term->row);
 		drawregion(0, orig + n - 1, term->col, term->row);
@@ -1593,7 +1599,8 @@ tscrolldown(Term *term, int orig, int n) {
 			term->line[i-n] = temp;
 		}
 
-		xmove(0, orig+n, 0, orig, term->col, term->bot-orig);
+		//xmove(0, orig+n, 0, orig, term->col, term->bot-orig);
+		xmove(0, orig+n, 0, orig, term->col, MAX(term->bot-orig-(n-1), 0));
 		tclearregion(term, 0, orig, term->col-1, orig+n-1);
 
 		selscroll(term, orig, n);
@@ -1632,7 +1639,6 @@ scrollback_add(Term *term, int i) {
 	if (term->sb_pos == scrollback) {
 		term->sb_pos = 0;
 	}
-	//if (!term->sb[term->sb_pos]) term->sb[term->sb_pos] = (Glyph *)xmalloc(term->col * sizeof(Glyph));
 	memcpy(term->sb[term->sb_pos], term->line[i], term->col * sizeof(Glyph));
 	term->sb_pos++;
 	if (term->sb_total != scrollback) {
@@ -1654,8 +1660,13 @@ tscrollup(Term *term, int orig, int n) {
 	}
 
 #ifdef OPTIMIZE_RENDER
-	//if (n <= 3 && term == focused_term) {
-	if (term == focused_term) {
+	if (term == focused_term && !term->swapped_lines) {
+		// NOTE: We only allow this optimization once per draw.
+		// NOTE: We could also measure time.
+		// NOTE: Could make this an int and increment and check
+		// (could also do this for tsetchar optimization).
+		term->swapped_lines = true;
+
 		/* need to get dirty lines written to the buffer */
 		//drawregion(0, 0, term->col, term->row);
 		drawregion(0, orig + n - 1, term->col, term->row);
@@ -1674,7 +1685,8 @@ tscrollup(Term *term, int orig, int n) {
 			 term->line[i+n] = temp;
 		}
 
-		xmove(0, orig, 0, orig+n, term->col, term->bot-orig);
+		//xmove(0, orig, 0, orig+n, term->col, term->bot-orig);
+		xmove(0, orig, 0, orig+n, term->col, MAX(term->bot-orig-(n-1), 0));
 		tclearregion(term, 0, term->bot-n+1, term->col-1, term->bot);
 
 		selscroll(term, orig, -n);
@@ -3607,12 +3619,12 @@ redraw(int timeout) {
 
 void
 draw(void) {
+#ifdef OPTIMIZE_RENDER
+	focused_term->swapped_lines = false;
+#endif
 	drawregion(0, 0, focused_term->col, focused_term->row);
-	//XGCValues gcv;
-	//gcv.graphics_exposures = 1; XChangeGC(xw.dpy, dc.gc, GCGraphicsExposures, &gcv);
 	XCopyArea(xw.dpy, xw.buf, xw.win, dc.gc, 0, 0, xw.w,
 			xw.h, 0, 0);
-	//gcv.graphics_exposures = 0; XChangeGC(xw.dpy, dc.gc, GCGraphicsExposures, &gcv);
 	XSetForeground(xw.dpy, dc.gc,
 			dc.col[IS_SET(focused_term, MODE_REVERSE)?
 				defaultfg : defaultbg].pixel);
@@ -3660,12 +3672,6 @@ drawregion(int x1, int y1, int x2, int y2) {
 		}
 		if(ib > 0)
 			xdraws(buf, base, ox, y, ic, ib);
-		// Improve rendering engine to be similar to urxvt:
-		// ~/downloads/rxvt-unicode-9.18/src/screen.C
-		// ~/downloads/rxvt-unicode-9.18/src/rxvtfont.C
-		//XDrawLine(dpy, vt, gc,
-		//	xpixel, ypixel + font->ascent + 1,
-		//	xpixel + Width2Pixel (count) - 1, ypixel + font->ascent + 1);
 	}
 
 	xdrawcursor();
