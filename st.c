@@ -1580,24 +1580,10 @@ tscrolldown(Term *term, int orig, int n) {
 	LIMIT(n, 0, term->bot-orig+1);
 
 #ifdef OPTIMIZE_RENDER
-	//if (n > 3 || term != focused_term) {
-	if (term != focused_term) {
-#endif
-		tclearregion(term, 0, term->bot-n+1, term->col-1, term->bot);
-
-		for(i = term->bot; i >= orig+n; i--) {
-			temp = term->line[i];
-			term->line[i] = term->line[i-n];
-			term->line[i-n] = temp;
-
-			term->dirty[i] = 1;
-			term->dirty[i-n] = 1;
-		}
-
-		selscroll(term, orig, n);
-#ifdef OPTIMIZE_RENDER
-	} else {
+	//if (n <= 3 && term == focused_term) {
+	if (term == focused_term) {
 		/* need to get dirty lines written to the buffer */
+		//drawregion(0, 0, term->col, term->row);
 		drawregion(0, orig + n - 1, term->col, term->row);
 
 		/* remove the old cursor */
@@ -1618,8 +1604,22 @@ tscrolldown(Term *term, int orig, int n) {
 		tclearregion(term, 0, orig, term->col-1, orig+n-1);
 
 		selscroll(term, orig, n);
+		return;
 	}
 #endif
+
+	tclearregion(term, 0, term->bot-n+1, term->col-1, term->bot);
+
+	for(i = term->bot; i >= orig+n; i--) {
+		temp = term->line[i];
+		term->line[i] = term->line[i-n];
+		term->line[i-n] = temp;
+
+		term->dirty[i] = 1;
+		term->dirty[i-n] = 1;
+	}
+
+	selscroll(term, orig, n);
 }
 
 Glyph *
@@ -1661,24 +1661,10 @@ tscrollup(Term *term, int orig, int n) {
 	}
 
 #ifdef OPTIMIZE_RENDER
-	//if (n > 3 || term != focused_term) {
-	if (term != focused_term) {
-#endif
-		tclearregion(term, 0, orig, term->col-1, orig+n-1);
-
-		for(i = orig; i <= term->bot-n; i++) {
-			 temp = term->line[i];
-			 term->line[i] = term->line[i+n];
-			 term->line[i+n] = temp;
-
-			 term->dirty[i] = 1;
-			 term->dirty[i+n] = 1;
-		}
-
-		selscroll(term, orig, -n);
-#ifdef OPTIMIZE_RENDER
-	} else {
+	//if (n <= 3 && term == focused_term) {
+	if (term == focused_term) {
 		/* need to get dirty lines written to the buffer */
+		//drawregion(0, 0, term->col, term->row);
 		drawregion(0, orig + n - 1, term->col, term->row);
 
 		/* remove the old cursor */
@@ -1699,8 +1685,23 @@ tscrollup(Term *term, int orig, int n) {
 		tclearregion(term, 0, term->bot-n+1, term->col-1, term->bot);
 
 		selscroll(term, orig, -n);
+
+		return;
 	}
 #endif
+
+	tclearregion(term, 0, orig, term->col-1, orig+n-1);
+
+	for(i = orig; i <= term->bot-n; i++) {
+		 temp = term->line[i];
+		 term->line[i] = term->line[i+n];
+		 term->line[i+n] = temp;
+
+		 term->dirty[i] = 1;
+		 term->dirty[i+n] = 1;
+	}
+
+	selscroll(term, orig, -n);
 }
 
 void
@@ -1821,6 +1822,7 @@ tsetchar(Term *term, char *c, Glyph *attr, int x, int y) {
 	}
 
 #ifdef OPTIMIZE_RENDER
+	//if (term == focused_term) {
 	if (term == focused_term && term->last_ret > (term->row * term->col) / 2) {
 		term->line[y][x] = *attr;
 		memcpy(term->line[y][x].c, c, UTF_SIZ);
