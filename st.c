@@ -398,6 +398,7 @@ static void xunloadfont(Font *f);
 static void xunloadfonts(void);
 static void xresize(int, int);
 static void xdrawbar(void);
+static void xmove(int, int, int, int, int, int);
 
 #ifdef USE_BLANK_CURSOR
 static void xcursorblank(void);
@@ -1562,14 +1563,6 @@ tscrollback(Term *term, int n) {
 
 	// Ensure a redraw of the screen.
 	redraw(0);
-}
-
-void
-xmove(int dx, int dy, int sx, int sy, int w, int h) {
-	XCopyArea(xw.dpy, xw.buf, xw.buf, dc.gc,
-		(sx*xw.cw) + borderpx, (sy*xw.ch) + borderpx,
-		(w*xw.cw) + borderpx, (h*xw.ch) + borderpx,
-		(dx*xw.cw) + borderpx, (dy*xw.ch) + borderpx);
 }
 
 void
@@ -3589,6 +3582,14 @@ xsettitle(char *p) {
 void
 xresettitle(void) {
 	xsettitle(opt_title ? opt_title : "st");
+}
+
+void
+xmove(int dx, int dy, int sx, int sy, int w, int h) {
+	XCopyArea(xw.dpy, xw.buf, xw.buf, dc.gc,
+		(sx*xw.cw) + borderpx, (sy*xw.ch) + borderpx,
+		(w*xw.cw) + borderpx, (h*xw.ch) + borderpx,
+		(dx*xw.cw) + borderpx, (dy*xw.ch) + borderpx);
 }
 
 void
