@@ -1559,11 +1559,12 @@ tscrollback(Term *term, int n) {
 		} else {
 			memcpy(term->line[i], term->last_line[y], term->col * sizeof(Glyph));
 		}
+		// This is unnecessary. The next call to redraw will handle this.
 		term->dirty[i] = 1;
 	}
 
 	// Ensure a redraw of the screen.
-	redraw(0);
+	if (term == focused_term) redraw(0);
 }
 
 void
