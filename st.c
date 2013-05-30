@@ -351,13 +351,13 @@ static void tmoveato(Term *, int x, int y);
 static void tnew(Term *, int, int);
 static void tnewline(Term *, int);
 static void tputtab(Term *, bool);
-static void tputc(Term *, char *, int);
+static inline void tputc(Term *, char *, int);
 static void treset(Term *);
 static int tresize(Term *, int, int);
 static void tscrollup(Term *, int, int);
 static void tscrolldown(Term *, int, int);
 static void tsetattr(Term *, int*, int);
-static void tsetchar(Term *, char *, Glyph *, int, int);
+static inline void tsetchar(Term *, char *, Glyph *, int, int);
 static void tsetscroll(Term *, int, int);
 static void tswapscreen(Term *);
 static void tsetdirt(Term *, int, int);
@@ -380,7 +380,7 @@ static void term_focus_prev(Term *);
 static void term_focus_next(Term *);
 static Term *term_focus_idx(int);
 
-static void xdraws(char *, Glyph, int, int, int, int);
+static inline void xdraws(char *, Glyph, int, int, int, int);
 static void xhints(void);
 static void xclear(int, int, int, int);
 static void xdrawcursor(void);
@@ -1804,7 +1804,7 @@ tmoveto(Term *term, int x, int y) {
 	term->c.y = y;
 }
 
-void
+static inline void
 tsetchar(Term *term, char *c, Glyph *attr, int x, int y) {
 	static char *vt100_0[62] = { /* 0x41 - 0x7e */
 		"↑", "↓", "→", "←", "█", "▚", "☃", /* A - G */
@@ -2499,7 +2499,7 @@ techo(Term *term, char *buf, int len) {
 		tputc(term, buf, len);
 }
 
-void
+static inline void
 tputc(Term *term, char *c, int len) {
 	uchar ascii = *c;
 	bool control = ascii < '\x20' || ascii == 0177;
@@ -3265,7 +3265,7 @@ xcursorunblank(void) {
 }
 #endif
 
-void
+static inline void
 xdraws(char *s, Glyph base, int x, int y, int charlen, int bytelen) {
 	int winx = borderpx + x * xw.cw, winy = borderpx + y * xw.ch,
 	    width = charlen * xw.cw, xp, i;
@@ -3658,8 +3658,14 @@ drawregion(int x1, int y1, int x2, int y2) {
 				new.mode ^= ATTR_REVERSE;
 			if(ib > 0 && (ATTRCMP(base, new)
 					|| ib >= DRAW_BUF_SIZ-UTF_SIZ)) {
+#ifdef OPTIMIZE_RENDER__
+				if (!(new.c[0] <= ' ' && !new.c[1] && base.bg == new.bg)) {
+#endif
 				xdraws(buf, base, ox, y, ic, ib);
 				ic = ib = 0;
+#ifdef OPTIMIZE_RENDER__
+				}
+#endif
 			}
 			if(ib == 0) {
 				ox = x;
