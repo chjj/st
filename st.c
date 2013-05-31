@@ -181,6 +181,7 @@ typedef struct {
 	int arg[ESC_ARG_SIZ];
 	int narg;	       /* nb of args */
 	char mode;
+	char prefix;
 } CSIEscape;
 
 /* STR Escape sequence structs */
@@ -1761,6 +1762,9 @@ csiparse(void) {
 	if(*p == '?') {
 		csiescseq.priv = 1;
 		p++;
+	} else if(*p == '>') {
+		csiescseq.prefix = '>';
+		p++;
 	}
 
 	csiescseq.buf[csiescseq.len] = '\0';
@@ -2191,8 +2195,13 @@ csihandle(Term *term) {
 		tmoveto(term, term->c.x, term->c.y+csiescseq.arg[0]);
 		break;
 	case 'c': /* DA -- Device Attributes */
-		if(csiescseq.arg[0] == 0)
+		if (csiescseq.prefix == '>') {
+			ttywrite(term, "\x1b[>0;276;0c", 11);
+		} else if (csiescseq.arg[0] == 0) {
 			ttywrite(term, VT102ID, sizeof(VT102ID) - 1);
+		} else {
+			goto unknown;
+		}
 		break;
 	case 'C': /* CUF -- Cursor <n> Forward */
 	case 'a': /* HPR -- Cursor <n> Forward */
