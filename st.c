@@ -2334,6 +2334,15 @@ csihandle(Term *term) {
 	case 'u': /* DECRC -- Restore cursor position (ANSI.SYS) */
 		tcursor(term, CURSOR_LOAD);
 		break;
+	case 'n': /* DSR -- Device Status Report */
+		if (csiescseq.arg[0] == 6) {
+			char buf[30];
+			int len = snprintf(buf, sizeof(buf), "\x1b[?%d;%dR", term->c.y + 1, term->c.x + 1);
+			ttywrite(term, buf, len);
+		} else {
+			goto unknown;
+		}
+		break;
 	}
 }
 
