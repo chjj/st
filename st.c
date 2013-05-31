@@ -336,7 +336,7 @@ static void csihandle(Term *);
 static void csiparse(void);
 static void csireset(void);
 static void strdump(void);
-static void strhandle(void);
+static void strhandle(Term *);
 static void strparse(void);
 static void strreset(void);
 
@@ -2384,7 +2384,7 @@ csireset(void) {
 }
 
 void
-strhandle(void) {
+strhandle(Term *term) {
 	char *p = NULL;
 	int i, j, narg;
 
@@ -2414,6 +2414,7 @@ strhandle(void) {
 				 * TODO if defaultbg color is changed, borders
 				 * are dirty
 				 */
+				// if (term == focused_term)
 				redraw(0);
 			}
 			break;
@@ -2426,7 +2427,19 @@ strhandle(void) {
 	case 'k': /* old title set compatibility */
 		xsettitle(strescseq.args[0]);
 		break;
-	case 'P': /* DSC -- Device Control String */
+	case 'P': { /* DSC -- Device Control String */
+		/* NOTE: Just send vim some strings it wants to see. */
+		/* receive: ^[P+q2332^[\  */
+		/* reply:   ^[P0+r2332^[\ */
+		/* reply:   ^[P{valid:0|1}{sign:*|+}r{str}^[\ */
+		char buf[30];
+		int valid = 0;
+		int len = snprintf(
+			buf, sizeof(buf), "\x1bP%d%cr%s\x1b\\",
+			valid, strescseq.buf[0], strescseq.buf + 2);
+		ttywrite(term, buf, len);
+		break;
+	}
 	case '_': /* APC -- Application Program Command */
 	case '^': /* PM -- Privacy Message */
 	default:
@@ -2542,7 +2555,7 @@ tputc(Term *term, char *c, int len) {
 			break;
 		case '\a': /* backwards compatibility to xterm */
 			term->esc = 0;
-			strhandle();
+			strhandle(term);
 			break;
 		default:
 			if(strescseq.len + len < sizeof(strescseq.buf) - 1) {
@@ -2560,7 +2573,7 @@ tputc(Term *term, char *c, int len) {
 			 */
 			/*
 			 * term->esc = 0;
-			 * strhandle();
+			 * strhandle(term);
 			 */
 			}
 		}
@@ -2630,7 +2643,7 @@ tputc(Term *term, char *c, int len) {
 		} else if(term->esc & ESC_STR_END) {
 			term->esc = 0;
 			if(ascii == '\\')
-				strhandle();
+				strhandle(term);
 		} else if(term->esc & ESC_ALTCHARSET) {
 			switch(ascii) {
 			case '0': /* Line drawing set */
