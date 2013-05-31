@@ -2174,6 +2174,10 @@ tsetmode(Term *term, bool priv, bool set, int *args, int narg) {
 
 void
 csihandle(Term *term) {
+	/* temporary workaround */
+	if (csiescseq.prefix && csiescseq.mode != 'c' && csiescseq.mode != 'n')  {
+		goto unknown;
+	}
 	switch(csiescseq.mode) {
 	default:
 	unknown:
