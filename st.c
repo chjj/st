@@ -4832,7 +4832,9 @@ main(int argc, char *argv[]) {
 	xw.isfixed = False;
 
 	for (int i = 0; i < argc; i++) {
-		if (strcmp(argv[i], "-name") == 0) argv[i][2] = '\0';
+		if (strcmp(argv[i], "-name") == 0) {
+			memset(argv[i] + 2, 0, strlen(argv[i]) - 2);
+		}
 	}
 
 	ARGBEGIN {
