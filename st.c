@@ -488,6 +488,7 @@ static int iofd = -1;
 static char **opt_cmd = NULL;
 static char *opt_io = NULL;
 static char *opt_title = NULL;
+static char *opt_name = NULL;
 static char *opt_embed = NULL;
 static char *opt_class = NULL;
 static char *opt_font = NULL;
@@ -4881,8 +4882,7 @@ main(int argc, char *argv_[]) {
 		opt_title = EARGF(usage());
 		break;
 	case 'n':
-		// opt_name = EARGF(usage());
-		EARGF(usage());
+		opt_name = EARGF(usage());
 		break;
 	case 'w':
 		opt_embed = EARGF(usage());
