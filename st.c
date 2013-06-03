@@ -4824,17 +4824,20 @@ usage(void) {
 }
 
 int
-main(int argc, char *argv[]) {
+main(int argc, char *argv_[]) {
 	int bitm, xr, yr;
 	uint wr, hr;
 
 	xw.fw = xw.fh = xw.fx = xw.fy = 0;
 	xw.isfixed = False;
 
+	char **argv = (char **)xmalloc((argc + 1) * sizeof(char *));
+	argv[argc] = NULL;
+
 	for (int i = 0; i < argc; i++) {
-		if (strcmp(argv[i], "-name") == 0) {
-			memset(argv[i] + 2, 0, strlen(argv[i]) - 2);
-		}
+		argv[i] = (char *)xmalloc((strlen(argv_[i]) + 1) * sizeof(char));
+		argv[i] = strcpy(argv[i], argv_[i]);
+		if (strcmp(argv[i], "-name") == 0) argv[i][2] = '\0';
 	}
 
 	ARGBEGIN {
