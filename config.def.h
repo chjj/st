@@ -35,7 +35,7 @@ static bool showactivity = false;
 static bool autohide = true;
 
 /* always show tab number */
-static bool alwaysshownumber = false;
+static bool alwaysshownumber = true;
 
 /* no text cursor */
 static bool notextcursor = true;

@@ -390,7 +390,7 @@ static void term_remove(Term *);
 static void term_focus(Term *);
 static void term_focus_prev(Term *);
 static void term_focus_next(Term *);
-static Term *term_focus_idx(int);
+static void term_focus_idx(int);
 
 static void xdraws(char *, Glyph, int, int, int, int);
 static void xhints(void);
@@ -4713,17 +4713,16 @@ term_focus_next(Term *target) {
 	term_focus(target ? target->next : NULL);
 }
 
-Term *
-term_focus_idx(int tab) {
+void
+term_focus_idx(int idx) {
 	int i = 0;
 	Term *term;
 	for (term = terms; term; term = term->next) {
-		if (++i == tab) {
+		if (++i == idx) {
 			term_focus(term);
 			break;
 		}
 	}
-	return term;
 }
 
 void
@@ -4760,6 +4759,7 @@ run(void) {
 					/* potentially move if-block from ttyread here */
 					continue;
 				}
+				/* potentially only do this and the below blink code for focused_term */
 				if(blinktimeout) {
 					blinkset = tattrset(term, ATTR_BLINK);
 					if(!blinkset && term->mode & ATTR_BLINK)
@@ -4870,8 +4870,7 @@ main(int argc, char *argv_[]) {
 	argv[argc] = NULL;
 
 	for (int i = 0; i < argc; i++) {
-		argv[i] = (char *)xmalloc((strlen(argv_[i]) + 1) * sizeof(char));
-		argv[i] = strcpy(argv[i], argv_[i]);
+		argv[i] = strdup(argv_[i]);
 		if (strcmp(argv[i], "-name") == 0) argv[i][2] = '\0';
 	}
 
