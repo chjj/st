@@ -46,6 +46,16 @@ char *argv0;
  #include <libutil.h>
 #endif
 
+#ifndef NO_PROC_POLL
+/* for basename */
+#include <libgen.h>
+/* for getproc */
+#if defined(__linux__)
+#include <stdio.h>
+#include <stdint.h>
+#endif
+#endif
+
 
 /* XEMBED messages */
 #define XEMBED_FOCUS_IN  4
@@ -330,6 +340,7 @@ static void execsh(void);
 static void sigchld(int);
 #endif
 static void run(void);
+static char *getproc(int, char *);
 
 static void csidump(void);
 static void csihandle(Term *);
@@ -478,6 +489,7 @@ static enum tstate_t tstate = S_NORMAL;
 static struct { int x; int y; bool hidden; int ybase; } normal_cursor;
 static char *status_msg = NULL;
 static struct timeval status_time;
+static struct timeval last_getproc;
 static struct { int flag; char text[60]; int pos; } entry;
 static int clicked_bar = -1;
 static CSIEscape csiescseq;
@@ -4764,6 +4776,28 @@ run(void) {
 		drawtimeout.tv_usec = (1000/xfps) * 1000;
 		tv = &drawtimeout;
 
+#ifndef NO_PROC_POLL
+		if (TIMEDIFF(now, last_getproc) > 2000) {
+			for (term = terms; term; term = term->next) {
+				char *title = getproc(term->cmdfd, NULL);
+				if (title == NULL) continue;
+				if (term->title) {
+					free(term->title);
+					term->title = NULL;
+				}
+				char *btitle = basename(title);
+				if (btitle == NULL) {
+					free(title);
+					continue;
+				}
+				char *atitle = strdup(btitle);
+				free(title);
+				term->title = atitle;
+			}
+			gettimeofday(&last_getproc, NULL);
+		}
+#endif
+
 		dodraw = 0;
 		if(blinktimeout && TIMEDIFF(now, lastblink) > blinktimeout) {
 			for (term = terms; term; term = term->next) {
@@ -4913,3 +4947,79 @@ run:
 	return 0;
 }
 
+/**
+ * getproc
+ * Taken from tmux.
+ */
+
+// Taken from: tmux (http://tmux.sourceforge.net/)
+// Copyright (c) 2009 Nicholas Marriott <nicm@users.sourceforge.net>
+// Copyright (c) 2009 Joshua Elsasser <josh@elsasser.org>
+// Copyright (c) 2009 Todd Carson <toc@daybefore.net>
+//
+// Permission to use, copy, modify, and distribute this software for any
+// purpose with or without fee is hereby granted, provided that the above
+// copyright notice and this permission notice appear in all copies.
+//
+// THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+// WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+// MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+// ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+// WHATSOEVER RESULTING FROM LOSS OF MIND, USE, DATA OR PROFITS, WHETHER
+// IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING
+// OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+#ifndef NO_PROC_POLL
+
+#if defined(__linux__)
+
+static char *
+getproc(int fd, char *tty) {
+  FILE *f;
+  char *path, *buf;
+  size_t len;
+  int ch;
+  pid_t pgrp;
+  int r;
+
+  if ((pgrp = tcgetpgrp(fd)) == -1) {
+    return NULL;
+  }
+
+  r = asprintf(&path, "/proc/%lld/cmdline", (long long)pgrp);
+  if (r == -1 || path == NULL) return NULL;
+
+  if ((f = fopen(path, "r")) == NULL) {
+    free(path);
+    return NULL;
+  }
+
+  free(path);
+
+  len = 0;
+  buf = NULL;
+  while ((ch = fgetc(f)) != EOF) {
+    if (ch == '\0') break;
+    buf = (char *)realloc(buf, len + 2);
+    if (buf == NULL) return NULL;
+    buf[len++] = ch;
+  }
+
+  if (buf != NULL) {
+    buf[len] = '\0';
+  }
+
+  fclose(f);
+  return buf;
+}
+
+#else
+
+static char *
+getproc(int fd, char *tty) {
+  return NULL;
+}
+
+#endif
+
+#endif
