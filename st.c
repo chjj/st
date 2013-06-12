@@ -2132,6 +2132,9 @@ tsetmode(Term *term, bool priv, bool set, int *args, int narg) {
 			case 1034:
 				MODBIT(term->mode, set, MODE_8BIT);
 				break;
+			case 1003: /* all motion */
+				MODBIT(term->mode, set, MODE_MOUSE);
+				break;
 			case 1049: /* = 1047 and 1048 */
 			case 47:
 			case 1047:
