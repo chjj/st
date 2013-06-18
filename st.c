@@ -3743,7 +3743,7 @@ xdrawbar(void) {
 	int i = 0;
 	int drawn = 1;
 	Term *term;
-	Glyph attr = {{' '}, ATTR_NULL, defaultfg, defaultbg};
+	Glyph attr = {{' '}, ATTR_NULL, defaultbarfg, defaultbarbg};
 	char buf[60];
 	int buflen;
 
@@ -3753,26 +3753,23 @@ xdrawbar(void) {
 		return;
 	}
 
-	// Ugly ways to allow a bg color:
-	//if (barcolor != -1) {
-	//	XftDrawRect(xw.draw, &dc.col[barcolor], borderpx,
-	//		borderpx + focused_term->row * xw.ch,
-	//		(focused_term->col + 1) * xw.cw, xw.ch);
-	//} else
-	//<OR>
-	//char *bg = (char *)malloc(term->col * sizeof(char));
-	//memset(bg, 0x20, term->col * sizeof(char));
-	//attr.bg = barcolor;
-	//xdraws(bg, attr, 0, focused_term->row, term->col, term->col);
-	//attr.bg = defaultbg;
-	//free(bg);
-
-	xtermclear(0, focused_term->row, focused_term->col, focused_term->row);
+	if (defaultbarbg != defaultbg) {
+		XftDrawRect(xw.draw, &dc.col[defaultbarbg], borderpx,
+			borderpx + focused_term->row * xw.ch,
+			(focused_term->col + 1) * xw.cw, xw.ch);
+		// To avoid a direct X call:
+		// char *bg = (char *)malloc(focused_term->col * sizeof(char));
+		// memset(bg, ' ', focused_term->col * sizeof(char));
+		// xdraws(bg, attr, 0, focused_term->row, focused_term->col, focused_term->col);
+		// free(bg);
+	} else {
+		xtermclear(0, focused_term->row, focused_term->col, focused_term->row);
+	}
 
 	if (shownewbutton) {
 		attr.mode = ATTR_BOLD;
 		attr.fg = 10;
-		attr.bg = defaultbg;
+		attr.bg = defaultbarbg;
 		xdraws("new", attr, drawn, focused_term->row, 3, 3);
 		drawn += 2;
 		drawn += 3;
@@ -3782,23 +3779,24 @@ xdrawbar(void) {
 		i++;
 		if (term->title) {
 			if (alwaysshownumber) {
-				snprintf(buf, sizeof(buf), "%d:%s%s", i,
-					term->title, term->has_activity ? "*" : "");
+				snprintf(buf, sizeof(buf), "%d:%s%s", i, term->title,
+					term->has_activity || term == focused_term ? "*" : " ");
 			} else {
-				snprintf(buf, sizeof(buf), "%s%s",
-					term->title, term->has_activity ? "*" : "");
+				snprintf(buf, sizeof(buf), "%s%s", term->title,
+					term->has_activity || term == focused_term ? "*" : " ");
 			}
 		} else {
-			snprintf(buf, sizeof(buf), "%d%s", i, term->has_activity ? "*" : "");
+			snprintf(buf, sizeof(buf), "%d%s", i,
+				term->has_activity || term == focused_term ? "*" : " ");
 		}
 		if (term == focused_term) {
 			attr.mode = ATTR_NULL;
-			attr.fg = 15;
-			attr.bg = defaultbg;
+			attr.fg = selbarfg;
+			attr.bg = selbarbg;
 		} else {
 			attr.mode = ATTR_NULL;
-			attr.fg = 6;
-			attr.bg = defaultbg;
+			attr.fg = unselbarfg;
+			attr.bg = unselbarbg;
 		}
 		buflen = strlen(buf);
 		if (drawn + buflen > term->col) {
@@ -3814,23 +3812,25 @@ xdrawbar(void) {
 			return;
 		}
 		xdraws(buf, attr, drawn, focused_term->row, buflen, buflen);
-		drawn += 2;
+		//drawn += 2; /* don't assume the state char is always present. */
+		drawn += 1; /* always assume there's an extra space from the state char. */
 		drawn += buflen;
 	}
 
 	if (tstate == S_SEARCH || tstate == S_RENAME) {
 		attr.mode = ATTR_NULL;
-		attr.fg = defaultfg;
-		attr.bg = defaultbg;
+		attr.fg = defaultbarfg;
+		attr.bg = defaultbarbg;
 		drawn += 1;
 		if (drawn + 8 + entry.pos > focused_term->col) {
 			return;
 		}
 		char final[68];
-		snprintf(final, sizeof(final), tstate == S_SEARCH ? "Search: %s" : "Rename: %s", entry.text);
+		snprintf(final, sizeof(final),
+			tstate == S_SEARCH ? "Search: %s" : "Rename: %s", entry.text);
 		xdraws(final, attr, drawn, focused_term->row, 8 + entry.pos, 8 + entry.pos);
 		drawn += 8 + entry.pos;
-		attr.bg = defaultfg;
+		attr.bg = defaultbarfg;
 		xdraws(" ", attr, drawn, focused_term->row, 1, 1);
 		drawn += 1;
 	}
@@ -3839,7 +3839,7 @@ xdrawbar(void) {
 		int l = strlen(status_msg);
 		attr.mode = ATTR_NULL;
 		attr.fg = 1;
-		attr.bg = defaultbg;
+		attr.bg = defaultbarbg;
 		drawn += 1;
 		if (drawn + l > focused_term->col) {
 			return;

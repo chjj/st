@@ -135,9 +135,9 @@ static const char *colorname[] = {
 	[255] = 0,
 
 	/* more colors can be added after 255 to use with DefaultXX */
-	// fg / cursor
+	/* fg / cursor */
 	"#eeeeee",
-	// bg
+	/* bg */
 	"#111111",
 };
 
@@ -155,6 +155,43 @@ static unsigned int defaultfg = 256;
 static unsigned int defaultbg = 257;
 static unsigned int defaultcs = 256;
 
+/* similar to my tmux setup */
+#if 0
+static unsigned int defaultbarbg = 257;
+static unsigned int defaultbarfg = 256;
+
+static unsigned int selbarbg = 257;
+static unsigned int selbarfg = 15;
+
+static unsigned int unselbarbg = 257;
+static unsigned int unselbarfg = 6;
+#endif
+
+/* a bar with an actual background */
+#if 0
+/* Set 258 to "#202020" above. */
+//static unsigned int defaultbarbg = 258;
+static unsigned int defaultbarbg = 0;
+static unsigned int defaultbarfg = 256;
+
+static unsigned int selbarbg = 8;
+static unsigned int selbarfg = 256;
+
+//static unsigned int unselbarbg = 258;
+static unsigned int unselbarbg = 0;
+static unsigned int unselbarfg = 256;
+#endif
+
+/* dark black/white */
+static unsigned int defaultbarbg = 257;
+static unsigned int defaultbarfg = 15;
+
+static unsigned int selbarbg = 257;
+static unsigned int selbarfg = 15;
+
+static unsigned int unselbarbg = 257;
+static unsigned int unselbarfg = 8;
+
 /*
  * Colors used, when the specific fg == defaultfg. So in reverse mode this
  * will reverse too. Another logic would only make the simple feature too
@@ -171,8 +208,7 @@ static Mousekey mshortcuts[] = {
 	{ Button4,		XK_ANY_MOD,	"\031"},
 	{ Button5,		XK_ANY_MOD,	"\005"},
 #endif
-	{ Button4,		ShiftMask,	"\031"},
-	{ Button5,		ShiftMask,	"\005"},
+	{0}
 };
 
 /* Internal keyboard shortcuts. */
