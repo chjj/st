@@ -340,7 +340,9 @@ static void execsh(void);
 static void sigchld(int);
 #endif
 static void run(void);
+#ifndef NO_PROC_POLL
 static char *getproc(int, char *);
+#endif
 
 static void csidump(void);
 static void csihandle(Term *);
@@ -489,7 +491,9 @@ static enum tstate_t tstate = S_NORMAL;
 static struct { int x; int y; bool hidden; int ybase; } normal_cursor;
 static char *status_msg = NULL;
 static struct timeval status_time;
+#ifndef NO_PROC_POLL
 static struct timeval last_getproc;
+#endif
 static struct { int flag; char text[60]; int pos; } entry;
 static int clicked_bar = -1;
 static CSIEscape csiescseq;
@@ -4505,6 +4509,8 @@ kpress(XEvent *ev) {
 			term_focus_prev(term);
 		} else if (ksym == XK_n) {
 			term_focus_next(term);
+		} else if (ksym == XK_Shift_L || ksym == XK_Shift_R) {
+			return;
 		}
 		tstate = S_NORMAL;
 		return;
@@ -4704,6 +4710,9 @@ void
 term_focus_prev(Term *target) {
 	Term *term;
 	for (term = terms; term; term = term->next) {
+		if (target == terms && !term->next) {
+			break;
+		}
 		if (term->next == target) {
 			break;
 		}
