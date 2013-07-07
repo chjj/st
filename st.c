@@ -3779,14 +3779,14 @@ xdrawbar(void) {
 		i++;
 		if (term->title) {
 			if (alwaysshownumber) {
-				snprintf(buf, sizeof(buf), "%d:%s%s", i, term->title,
+				buflen = snprintf(buf, sizeof(buf), "%d:%s%s", i, term->title,
 					term->has_activity || term == focused_term ? "*" : " ");
 			} else {
-				snprintf(buf, sizeof(buf), "%s%s", term->title,
+				buflen = snprintf(buf, sizeof(buf), "%s%s", term->title,
 					term->has_activity || term == focused_term ? "*" : " ");
 			}
 		} else {
-			snprintf(buf, sizeof(buf), "%d%s", i,
+			buflen = snprintf(buf, sizeof(buf), "%d%s", i,
 				term->has_activity || term == focused_term ? "*" : " ");
 		}
 		if (term == focused_term) {
@@ -3798,7 +3798,6 @@ xdrawbar(void) {
 			attr.fg = unselbarfg;
 			attr.bg = unselbarbg;
 		}
-		buflen = strlen(buf);
 		if (drawn + buflen > term->col) {
 			break;
 		}
