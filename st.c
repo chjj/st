@@ -2438,8 +2438,7 @@ strhandle(Term *term) {
 				 * TODO if defaultbg color is changed, borders
 				 * are dirty
 				 */
-				// if (term == focused_term)
-				redraw(0);
+				if (term == focused_term) redraw(0);
 			}
 			break;
 		default:
@@ -3645,6 +3644,7 @@ xsettitle(char *p) {
 	Xutf8TextListToTextProperty(xw.dpy, &p, 1, XUTF8StringStyle,
 			&prop);
 	XSetWMName(xw.dpy, xw.win, &prop);
+	XFree(prop.value);
 }
 
 void
@@ -4344,6 +4344,7 @@ kpress(XEvent *ev) {
 			int x = term->col - 1;
 			while (x >= 0) {
 				if (l[x].c[0] > ' ') {
+					//if (tstate == S_VISUAL && x < term->col - 1) x++;
 					break;
 				}
 				x--;
