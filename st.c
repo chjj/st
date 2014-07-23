@@ -235,8 +235,6 @@ typedef struct _Term {
 #endif
 } Term;
 
-Line *oline;	/* screen */
-
 /* Purely graphic info */
 typedef struct {
 	Display *dpy;
@@ -1619,25 +1617,15 @@ tscrolldown(Term *term, int orig, int n) {
 			term->c.x, term->c.y, 1,
 			utf8size(term->line[term->c.y][term->c.x].c));
 
-		memcpy(&oline[term->c.y][term->c.x],
-			&term->line[term->c.y][term->c.x],
-			sizeof(Glyph));
-
 		for(i = term->bot; i >= orig+n; i--) {
 			temp = term->line[i];
 			term->line[i] = term->line[i-n];
 			term->line[i-n] = temp;
-
-			temp = oline[i];
-			oline[i] = oline[i-n];
-			oline[i-n] = temp;
 		}
 
 		//xmove(0, orig+n, 0, orig, term->col, term->bot-orig);
 		xmove(0, orig+n, 0, orig, term->col, MAX(term->bot-orig-(n-1), 0));
 		tclearregion(term, 0, orig, term->col-1, orig+n-1);
-
-		//xtermclear(0, i + n + 1, focused_term->col, i + n + 1);
 
 		selscroll(term, orig, n);
 		return;
@@ -1715,33 +1703,15 @@ tscrollup(Term *term, int orig, int n) {
 			term->c.x, term->c.y, 1,
 			utf8size(term->line[term->c.y][term->c.x].c));
 
-		memcpy(&oline[term->c.y][term->c.x],
-			&term->line[term->c.y][term->c.x],
-			sizeof(Glyph));
-
-		// WHY THIS CAUSES A PROBLEM:
-		// xxxxxx
-		// xxxxxx
-		// gggggggggg
-		// BECOMES:
-		// xxxxxx
-		// xxxxxxgggg
-		// Because the bottom line doesn't get erased when the rest of the xarea gets moved UP.
 		for(i = orig; i <= term->bot-n; i++) {
 			 temp = term->line[i];
 			 term->line[i] = term->line[i+n];
 			 term->line[i+n] = temp;
-
-			 temp = oline[i];
-			 oline[i] = oline[i+n];
-			 oline[i+n] = temp;
 		}
 
 		//xmove(0, orig, 0, orig+n, term->col, term->bot-orig);
 		xmove(0, orig, 0, orig+n, term->col, MAX(term->bot-orig-(n-1), 0));
 		tclearregion(term, 0, term->bot-n+1, term->col-1, term->bot);
-
-		//xtermclear(0, i + n - 1, focused_term->col, i + n - 1);
 
 		selscroll(term, orig, -n);
 
@@ -1887,8 +1857,6 @@ tsetchar(Term *term, char *c, Glyph *attr, int x, int y) {
 	//if (term == focused_term) {
 	if (term == focused_term && term->last_ret > (term->row * term->col) / 2) {
 		term->line[y][x] = *attr;
-		//oline[y][x] = *attr;
-		memcpy(&oline[y][x], &term->line[y][x], sizeof(Glyph));
 		memcpy(term->line[y][x].c, c, UTF_SIZ);
 		xdraws(
 			term->line[y][x].c,
@@ -2872,24 +2840,15 @@ tresize(Term *term, int col, int row) {
 			free(term->line[i]);
 			free(term->alt[i]);
 			free(term->last_line[i]);
-			if (term == focused_term) {
-				free(oline[i]);
-			}
 		}
 		memmove(term->line, term->line + slide, row * sizeof(Line));
 		memmove(term->alt, term->alt + slide, row * sizeof(Line));
 		memmove(term->last_line, term->last_line + slide, row * sizeof(Line));
-		if (term == focused_term) {
-			memmove(oline, oline + slide, row * sizeof(Line));
-		}
 	}
 	for(i += row; i < term->row; i++) {
 		free(term->line[i]);
 		free(term->alt[i]);
 		free(term->last_line[i]);
-		if (term == focused_term) {
-			free(oline[i]);
-		}
 	}
 
 	/* resize to new height */
@@ -2898,9 +2857,6 @@ tresize(Term *term, int col, int row) {
 	term->dirty = xrealloc(term->dirty, row * sizeof(*term->dirty));
 	term->tabs = xrealloc(term->tabs, col * sizeof(*term->tabs));
 	term->last_line = xrealloc(term->last_line, row * sizeof(Line));
-	if (term == focused_term) {
-		oline = xrealloc(oline, row * sizeof(Line));
-	}
 
 	/* resize the scrollback */
 	if (!term->sb) {
@@ -2918,9 +2874,6 @@ tresize(Term *term, int col, int row) {
 		term->line[i] = xrealloc(term->line[i], col * sizeof(Glyph));
 		term->alt[i]  = xrealloc(term->alt[i],  col * sizeof(Glyph));
 		term->last_line[i] = xrealloc(term->last_line[i], col * sizeof(Glyph));
-		if (term == focused_term) {
-			oline[i] = xrealloc(oline[i], col * sizeof(Glyph));
-		}
 	}
 
 	/* allocate any new rows */
@@ -2929,9 +2882,6 @@ tresize(Term *term, int col, int row) {
 		term->line[i] = xcalloc(col, sizeof(Glyph));
 		term->alt [i] = xcalloc(col, sizeof(Glyph));
 		term->last_line[i] = xcalloc(col, sizeof(Glyph));
-		if (term == focused_term) {
-			oline[i] = xcalloc(col, sizeof(Glyph));
-		}
 	}
 	if(col > term->col) {
 		bp = term->tabs + term->col;
@@ -3730,7 +3680,6 @@ xmove(int dx, int dy, int sx, int sy, int w, int h) {
 	if (my1 == -1 || winy < my1) my1 = winy;
 	if (my2 == -1 || winy + height > my2) my2 = winy + height;
 #endif
-	//memmove(oline + dy, oline + sy, h * sizeof(Line));
 }
 
 void
@@ -3769,7 +3718,7 @@ draw(void) {
 void
 drawregion(int x1, int y1, int x2, int y2) {
 	int ic, ib, x, y, ox, sl;
-	Glyph base, new, *last;
+	Glyph base, new;
 	char buf[DRAW_BUF_SIZ];
 	bool ena_sel = sel.bx != -1;
 
@@ -3783,26 +3732,14 @@ drawregion(int x1, int y1, int x2, int y2) {
 		if(!focused_term->dirty[y])
 			continue;
 
-		//xtermclear(0, y, focused_term->col, y);
+		xtermclear(0, y, focused_term->col, y);
 		focused_term->dirty[y] = 0;
 		base = focused_term->line[y][0];
 		ic = ib = ox = 0;
 		for(x = x1; x < x2; x++) {
 			new = focused_term->line[y][x];
-			last = &oline[y][x];
-
 			if(ena_sel && selected(x, y))
 				new.mode ^= ATTR_REVERSE;
-
-			if (memcmp(last, &new, sizeof(Glyph)) == 0) {
-				if (ib > 0) {
-					xdraws(buf, base, ox, y, ic, ib);
-					ic = ib = 0;
-				}
-				continue;
-			}
-			memcpy(last, &new, sizeof(Glyph));
-
 			if(ib > 0 && (ATTRCMP(base, new)
 					|| ib >= DRAW_BUF_SIZ-UTF_SIZ)) {
 				xdraws(buf, base, ox, y, ic, ib);
