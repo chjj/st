@@ -89,7 +89,6 @@ char *argv0;
 #define VT102ID "\033[?6c"
 
 #define OPTIMIZE_RENDER
-#define XCOPY_MINIMAL
 
 enum glyph_attribute {
 	ATTR_NULL      = 0,
@@ -517,10 +516,6 @@ static int usedfontsize = 0;
 static Cursor cursor;
 static Cursor blank_cursor;
 static bool hidden_cursor = false;
-#endif
-
-#ifdef XCOPY_MINIMAL
-static int mx1 = -1, mx2 = -1, my1 = -1, my2 = -1;
 #endif
 
 /* Font Ring Cache */
@@ -3341,13 +3336,6 @@ xdraws(char *s, Glyph base, int x, int y, int charlen, int bytelen) {
 	XRenderColor colfg, colbg;
 	Rectangle r;
 
-#ifdef XCOPY_MINIMAL
-	if (mx1 == -1 || winx < mx1) mx1 = winx;
-	if (mx2 == -1 || winx + width > mx2) mx2 = winx + width;
-	if (my1 == -1 || winy < my1) my1 = winy;
-	if (my2 == -1 || winy + xw.ch > my2) my2 = winy + xw.ch;
-#endif
-
 	frcflags = FRC_NORMAL;
 
 	if(base.mode & ATTR_ITALIC) {
@@ -3670,16 +3658,6 @@ xmove(int dx, int dy, int sx, int sy, int w, int h) {
 		(sx*xw.cw) + borderpx, (sy*xw.ch) + borderpx,
 		(w*xw.cw) + borderpx, (h*xw.ch) + borderpx,
 		(dx*xw.cw) + borderpx, (dy*xw.ch) + borderpx);
-#ifdef XCOPY_MINIMAL
-	int winx = sx * xw.cw + borderpx;
-	int winy = sy * xw.ch + borderpx;
-	int width = w * xw.cw + borderpx;
-	int height = h * xw.ch + borderpx;
-	if (mx1 == -1 || winx < mx1) mx1 = winx;
-	if (mx2 == -1 || winx + width > mx2) mx2 = winx + width;
-	if (my1 == -1 || winy < my1) my1 = winy;
-	if (my2 == -1 || winy + height > my2) my2 = winy + height;
-#endif
 }
 
 void
@@ -3701,15 +3679,8 @@ draw(void) {
 	focused_term->swapped_lines = false;
 #endif
 	drawregion(0, 0, focused_term->col, focused_term->row);
-#ifdef XCOPY_MINIMAL
-	if (my1 != -1) {
-		XCopyArea(xw.dpy, xw.buf, xw.win, dc.gc, mx1, my1, mx2 - mx1, my2 - my1, mx1, my1);
-	}
-	mx1 = -1, mx2 = -1, my1 = -1, my2 = -1;
-#else
 	XCopyArea(xw.dpy, xw.buf, xw.win, dc.gc, 0, 0, xw.w,
 			xw.h, 0, 0);
-#endif
 	XSetForeground(xw.dpy, dc.gc,
 			dc.col[IS_SET(focused_term, MODE_REVERSE)?
 				defaultfg : defaultbg].pixel);
