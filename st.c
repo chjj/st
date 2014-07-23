@@ -3342,7 +3342,7 @@ xinit(void) {
 #define Font Font_
 	//blank_cursor = XCreateGlyphCursor(xw.dpy, f, f, ' ', ' ', &black, &black);
 	//XUnloadFont(xw.dpy, f);
-  XFontStruct *f = XLoadQueryFont(xw.dpy, "fixed");
+	XFontStruct *f = XLoadQueryFont(xw.dpy, "fixed");
 	blank_cursor = XCreateGlyphCursor(xw.dpy, f->fid, f->fid, 'X', ' ', &black, &black);
 	XFreeFont(xw.dpy, f);
 #endif
@@ -5078,49 +5078,49 @@ run:
 
 static char *
 getproc(int fd, char *tty) {
-  FILE *f;
-  char *path, *buf;
-  size_t len;
-  int ch;
-  pid_t pgrp;
-  int r;
+	FILE *f;
+	char *path, *buf;
+	size_t len;
+	int ch;
+	pid_t pgrp;
+	int r;
 
-  if ((pgrp = tcgetpgrp(fd)) == -1) {
-    return NULL;
-  }
+	if ((pgrp = tcgetpgrp(fd)) == -1) {
+		return NULL;
+	}
 
-  r = asprintf(&path, "/proc/%lld/cmdline", (long long)pgrp);
-  if (r == -1 || path == NULL) return NULL;
+	r = asprintf(&path, "/proc/%lld/cmdline", (long long)pgrp);
+	if (r == -1 || path == NULL) return NULL;
 
-  if ((f = fopen(path, "r")) == NULL) {
-    free(path);
-    return NULL;
-  }
+	if ((f = fopen(path, "r")) == NULL) {
+		free(path);
+		return NULL;
+	}
 
-  free(path);
+	free(path);
 
-  len = 0;
-  buf = NULL;
-  while ((ch = fgetc(f)) != EOF) {
-    if (ch == '\0') break;
-    buf = (char *)realloc(buf, len + 2);
-    if (buf == NULL) return NULL;
-    buf[len++] = ch;
-  }
+	len = 0;
+	buf = NULL;
+	while ((ch = fgetc(f)) != EOF) {
+		if (ch == '\0') break;
+		buf = (char *)realloc(buf, len + 2);
+		if (buf == NULL) return NULL;
+		buf[len++] = ch;
+	}
 
-  if (buf != NULL) {
-    buf[len] = '\0';
-  }
+	if (buf != NULL) {
+		buf[len] = '\0';
+	}
 
-  fclose(f);
-  return buf;
+	fclose(f);
+	return buf;
 }
 
 #else
 
 static char *
 getproc(int fd, char *tty) {
-  return NULL;
+	return NULL;
 }
 
 #endif
